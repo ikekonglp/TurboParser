@@ -1,20 +1,20 @@
-// Copyright (c) 2012 Andre Martins
+// Copyright (c) 2012-2015 Andre Martins
 // All Rights Reserved.
 //
-// This file is part of TurboParser 2.0.
+// This file is part of TurboParser 2.3.
 //
-// TurboParser 2.0 is free software: you can redistribute it and/or modify
+// TurboParser 2.3 is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Lesser General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
 //
-// TurboParser 2.0 is distributed in the hope that it will be useful,
+// TurboParser 2.3 is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 // GNU Lesser General Public License for more details.
 //
 // You should have received a copy of the GNU Lesser General Public License
-// along with TurboParser 2.0.  If not, see <http://www.gnu.org/licenses/>.
+// along with TurboParser 2.3.  If not, see <http://www.gnu.org/licenses/>.
 
 #ifndef DEPENDENCYINSTANCE_H_
 #define DEPENDENCYINSTANCE_H_
@@ -24,19 +24,29 @@
 #include "Instance.h"
 
 class DependencyInstance : public Instance {
- public:
+public:
   DependencyInstance() {};
   virtual ~DependencyInstance() {};
 
+  Instance* Copy() {
+    DependencyInstance* instance = new DependencyInstance();
+    instance->Initialize(forms_, lemmas_, cpostags_, postags_,
+                         feats_, deprels_, heads_);
+    return static_cast<Instance*>(instance);
+  }
+
   void Initialize(const vector<string> &forms,
                   const vector<string> &lemmas,
-                  const vector<string> &cpos, 
-                  const vector<string> &pos, 
+                  const vector<string> &cpos,
+                  const vector<string> &pos,
                   const vector<vector<string> > &feats,
-                  const vector<string> &deprels, 
+                  const vector<string> &deprels,
                   const vector<int> &heads);
 
   int size() { return forms_.size(); };
+
+  const vector<int> &GetHeads() { return heads_; }
+  const vector<string> &GetDependencyRelations() { return deprels_; }
 
   const string &GetForm(int i) { return forms_[i]; };
   const string &GetLemma(int i) { return lemmas_[i]; };
@@ -52,7 +62,7 @@ class DependencyInstance : public Instance {
     deprels_[i] = dependency_relation;
   }
 
- protected:
+protected:
   // FORM: the forms - usually words, like "thought"
   vector<string> forms_;
   // LEMMA: the lemmas, or stems, e.g. "think"

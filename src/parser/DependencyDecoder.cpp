@@ -1,20 +1,20 @@
-// Copyright (c) 2012 Andre Martins
+// Copyright (c) 2012-2015 Andre Martins
 // All Rights Reserved.
 //
-// This file is part of TurboParser 2.0.
+// This file is part of TurboParser 2.3.
 //
-// TurboParser 2.0 is free software: you can redistribute it and/or modify
+// TurboParser 2.3 is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Lesser General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
 //
-// TurboParser 2.0 is distributed in the hope that it will be useful,
+// TurboParser 2.3 is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 // GNU Lesser General Public License for more details.
 //
 // You should have received a copy of the GNU Lesser General Public License
-// along with TurboParser 2.0.  If not, see <http://www.gnu.org/licenses/>.
+// along with TurboParser 2.3.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "DependencyDecoder.h"
 #include "DependencyPart.h"
@@ -22,6 +22,7 @@
 #include "FactorTree.h"
 #include "FactorHeadAutomaton.h"
 #include "FactorGrandparentHeadAutomaton.h"
+#include "FactorTrigramHeadAutomaton.h"
 #include "FactorSequence.h"
 #include "AlgUtils.h"
 #include <iostream>
@@ -99,7 +100,7 @@ void DependencyDecoder::DecodeMarginals(Instance *instance, Parts *parts,
   // If labeled parsing, decode the labels and update the scores.
   if (pipe_->GetDependencyOptions()->labeled()) {
     DecodeLabelMarginals(instance, parts, copied_scores, &total_scores,
-        &label_marginals);
+                         &label_marginals);
     for (int r = 0; r < total_scores.size(); ++r) {
       copied_scores[offset_arcs + r] += total_scores[r];
     }
@@ -109,28 +110,33 @@ void DependencyDecoder::DecodeMarginals(Instance *instance, Parts *parts,
   predicted_output->resize(parts->size(), 0.0);
 
   double log_partition_function;
-  DecodeMatrixTree(instance, parts, copied_scores, predicted_output,
-                   &log_partition_function, entropy);
+  if (pipe_->GetDependencyOptions()->projective()) {
+    DecodeInsideOutside(instance, parts, copied_scores, predicted_output,
+                        &log_partition_function, entropy);
+  } else {
+    DecodeMatrixTree(instance, parts, copied_scores, predicted_output,
+                     &log_partition_function, entropy);
+  }
 
   // If labeled parsing, write the components of the predicted output that
   // correspond to the labeled parts.
   if (pipe_->GetDependencyOptions()->labeled()) {
     for (int r = 0; r < num_labeled_arcs; ++r) {
       DependencyPartLabeledArc *labeled_arc =
-          static_cast<DependencyPartLabeledArc*>(
-              (*parts)[offset_labeled_arcs + r]);
+        static_cast<DependencyPartLabeledArc*>(
+          (*parts)[offset_labeled_arcs + r]);
       int index_arc = dependency_parts->FindArc(labeled_arc->head(),
                                                 labeled_arc->modifier());
       CHECK_GE(index_arc, 0);
       (*predicted_output)[offset_labeled_arcs + r] =
-          label_marginals[r] * (*predicted_output)[index_arc];
+        label_marginals[r] * (*predicted_output)[index_arc];
     }
 
     // Recompute the entropy.
     *entropy = log_partition_function;
     for (int r = 0; r < num_labeled_arcs; ++r) {
       *entropy -= (*predicted_output)[offset_labeled_arcs + r] *
-          scores[offset_labeled_arcs + r];
+        scores[offset_labeled_arcs + r];
     }
     if (*entropy < 0.0) {
       LOG(INFO) << "Entropy truncated to zero (" << *entropy << ")";
@@ -146,6 +152,9 @@ void DependencyDecoder::DecodeMarginals(Instance *instance, Parts *parts,
     LOG(INFO) << "Loss truncated to zero (" << *loss << ")";
     *loss = 0.0;
   }
+
+  //LOG(INFO) << "Loss = " << *loss;
+  //LOG(INFO) << "Entropy = " << *entropy;
 }
 
 // Decode the best label for each candidate arc. The output vector
@@ -161,9 +170,9 @@ void DependencyDecoder::DecodeLabels(Instance *instance, Parts *parts,
   best_labeled_parts->resize(num_arcs);
   for (int r = 0; r < num_arcs; ++r) {
     DependencyPartArc *arc =
-        static_cast<DependencyPartArc*>((*parts)[offset + r]);
+      static_cast<DependencyPartArc*>((*parts)[offset + r]);
     const vector<int> &index_labeled_parts =
-        dependency_parts->FindLabeledArcs(arc->head(), arc->modifier());
+      dependency_parts->FindLabeledArcs(arc->head(), arc->modifier());
     // Find the best label for each candidate arc.
     int best_label = -1;
     double best_score;
@@ -182,9 +191,9 @@ void DependencyDecoder::DecodeLabels(Instance *instance, Parts *parts,
 // total_scores contains the sum of exp-scores (over the labels) for each arc;
 // label_marginals contains those marginals ignoring the tree constraint.
 void DependencyDecoder::DecodeLabelMarginals(Instance *instance, Parts *parts,
-                                     const vector<double> &scores,
-                                     vector<double> *total_scores,
-                                     vector<double> *label_marginals) {
+                                             const vector<double> &scores,
+                                             vector<double> *total_scores,
+                                             vector<double> *label_marginals) {
   DependencyParts *dependency_parts = static_cast<DependencyParts*>(parts);
 
   int offset, num_arcs;
@@ -198,9 +207,9 @@ void DependencyDecoder::DecodeLabelMarginals(Instance *instance, Parts *parts,
 
   for (int r = 0; r < num_arcs; ++r) {
     DependencyPartArc *arc =
-        static_cast<DependencyPartArc*>((*parts)[offset + r]);
+      static_cast<DependencyPartArc*>((*parts)[offset + r]);
     const vector<int> &index_labeled_parts =
-        dependency_parts->FindLabeledArcs(arc->head(), arc->modifier());
+      dependency_parts->FindLabeledArcs(arc->head(), arc->modifier());
     // Find the best label for each candidate arc.
     LogValD total_score = LogValD::Zero();
     for (int k = 0; k < index_labeled_parts.size(); ++k) {
@@ -210,9 +219,9 @@ void DependencyDecoder::DecodeLabelMarginals(Instance *instance, Parts *parts,
     double sum = 0.0;
     for (int k = 0; k < index_labeled_parts.size(); ++k) {
       LogValD marginal =
-          LogValD(scores[index_labeled_parts[k]], false) / total_score;
+        LogValD(scores[index_labeled_parts[k]], false) / total_score;
       (*label_marginals)[index_labeled_parts[k] - offset_labeled] =
-          marginal.as_float();
+        marginal.as_float();
       sum += marginal.as_float();
     }
     if (!NEARLY_EQ_TOL(sum, 1.0, 1e-9)) {
@@ -221,7 +230,7 @@ void DependencyDecoder::DecodeLabelMarginals(Instance *instance, Parts *parts,
   }
 }
 
-void DependencyDecoder::Decode(Instance *instance, Parts *parts, 
+void DependencyDecoder::Decode(Instance *instance, Parts *parts,
                                const vector<double> &scores,
                                vector<double> *predicted_output) {
   DependencyParts *dependency_parts = static_cast<DependencyParts*>(parts);
@@ -273,19 +282,19 @@ void DependencyDecoder::Decode(Instance *instance, Parts *parts,
   if (pipe_->GetDependencyOptions()->labeled()) {
     for (int r = 0; r < num_arcs; ++r) {
       (*predicted_output)[best_labeled_parts[r]] =
-          (*predicted_output)[offset_arcs + r];
+        (*predicted_output)[offset_arcs + r];
     }
   }
 }
 
 void DependencyDecoder::DecodePruner(Instance *instance, Parts *parts,
-    const vector<double> &scores,
-    vector<double> *predicted_output) {
+                                     const vector<double> &scores,
+                                     vector<double> *predicted_output) {
   int sentence_length =
     static_cast<DependencyInstanceNumeric*>(instance)->size();
   DependencyParts *dependency_parts = static_cast<DependencyParts*>(parts);
   double posterior_threshold =
-      pipe_->GetDependencyOptions()->GetPrunerPosteriorThreshold();
+    pipe_->GetDependencyOptions()->GetPrunerPosteriorThreshold();
   int max_heads = pipe_->GetDependencyOptions()->GetPrunerMaxHeads();
   if (max_heads < 0) max_heads = sentence_length;
   predicted_output->clear();
@@ -296,23 +305,36 @@ void DependencyDecoder::DecodePruner(Instance *instance, Parts *parts,
   double entropy;
   double log_partition_function;
   vector<double> posteriors;
-  DecodeMatrixTree(instance, parts, scores, &posteriors,
-                   &log_partition_function, &entropy);
+  if (pipe_->GetDependencyOptions()->projective()) {
+    DecodeInsideOutside(instance, parts, scores, &posteriors,
+                        &log_partition_function, &entropy);
+  } else {
+    DecodeMatrixTree(instance, parts, scores, &posteriors,
+                     &log_partition_function, &entropy);
+  }
 
   int num_used_parts = 0;
   for (int m = 1; m < sentence_length; ++m) {
-    vector<pair<double,int> > scores_heads;
+    vector<pair<double, int> > scores_heads;
     for (int h = 0; h < sentence_length; ++h) {
       int r = dependency_parts->FindArc(h, m);
       if (r < 0) continue;
-      scores_heads.push_back(pair<double,int>(-posteriors[r], r));
+      scores_heads.push_back(pair<double, int>(-posteriors[r], r));
     }
     if (scores_heads.size() == 0) continue;
     sort(scores_heads.begin(), scores_heads.end());
     double max_posterior = -scores_heads[0].first;
     for (int k = 0; k < max_heads && k < scores_heads.size(); ++k) {
       int r = scores_heads[k].second;
-      if (-scores_heads[k].first >= posterior_threshold * max_posterior) {
+      // Note: better to put k == 0 because things could have gone
+      // wrong with the marginal decoder and all parents could
+      // end up with zero probability.
+      // TODO(atm): this still does not solve the problem, since
+      // it doesn't guarantee that there is a tree spanning the
+      // pruned graph. Need to call DependencyPipe::EnforceConnectedGraph
+      // somewhere after pruning.
+      if (k == 0 ||
+          -scores_heads[k].first >= posterior_threshold * max_posterior) {
         ++num_used_parts;
         (*predicted_output)[r] = 1.0;
       } else {
@@ -322,14 +344,14 @@ void DependencyDecoder::DecodePruner(Instance *instance, Parts *parts,
   }
 
   VLOG(2) << "Pruning reduced to "
-          << static_cast<double>(num_used_parts) /
-                static_cast<double>(sentence_length)
-          << " candidate heads per word.";
+    << static_cast<double>(num_used_parts) /
+    static_cast<double>(sentence_length)
+    << " candidate heads per word.";
 }
 
 void DependencyDecoder::DecodePrunerNaive(Instance *instance, Parts *parts,
-    const vector<double> &scores,
-    vector<double> *predicted_output) {
+                                          const vector<double> &scores,
+                                          vector<double> *predicted_output) {
   int sentence_length =
     static_cast<DependencyInstanceNumeric*>(instance)->size();
   DependencyParts *dependency_parts = static_cast<DependencyParts*>(parts);
@@ -341,11 +363,11 @@ void DependencyDecoder::DecodePrunerNaive(Instance *instance, Parts *parts,
 
   // Get max_heads heads per modifier.
   for (int m = 1; m < sentence_length; ++m) {
-    vector<pair<double,int> > scores_heads;
+    vector<pair<double, int> > scores_heads;
     for (int h = 0; h < sentence_length; ++h) {
       int r = dependency_parts->FindArc(h, m);
       if (r < 0) continue;
-      scores_heads.push_back(pair<double,int>(-scores[r], r));
+      scores_heads.push_back(pair<double, int>(-scores[r], r));
     }
     sort(scores_heads.begin(), scores_heads.end());
     for (int k = 0; k < max_heads && k < scores_heads.size(); ++k) {
@@ -356,12 +378,13 @@ void DependencyDecoder::DecodePrunerNaive(Instance *instance, Parts *parts,
 }
 
 // Decoder for the basic model; it finds a maximum weighted arborescence
-// using Edmonds' algorithm (which runs in O(n^2)).
+// using Edmonds' algorithm (which runs in O(n^2)) or, if the --projective
+// option is set, Eisner's algorithm (O(n^3)).
 void DependencyDecoder::DecodeBasic(Instance *instance, Parts *parts,
                                     const vector<double> &scores,
                                     vector<double> *predicted_output,
                                     double *value) {
-  int sentence_length = 
+  int sentence_length =
     static_cast<DependencyInstanceNumeric*>(instance)->size();
   DependencyParts *dependency_parts = static_cast<DependencyParts*>(parts);
   int offset_arcs, num_arcs;
@@ -374,7 +397,11 @@ void DependencyDecoder::DecodeBasic(Instance *instance, Parts *parts,
   }
 
   vector<int> heads;
-  RunChuLiuEdmonds(sentence_length, arcs, scores_arcs, &heads, value);
+  if (pipe_->GetDependencyOptions()->projective()) {
+    RunEisner(sentence_length, arcs, scores_arcs, &heads, value);
+  } else {
+    RunChuLiuEdmonds(sentence_length, arcs, scores_arcs, &heads, value);
+  }
 
   predicted_output->resize(parts->size());
   for (int r = 0; r < num_arcs; ++r) {
@@ -394,11 +421,11 @@ void DependencyDecoder::DecodeBasic(Instance *instance, Parts *parts,
 // Decoder for the basic model; it finds a maximum weighted arborescence
 // using Edmonds' algorithm (which runs in O(n^2)).
 void DependencyDecoder::RunChuLiuEdmondsIteration(
-    vector<bool> *disabled,
-    vector<vector<int> > *candidate_heads,
-    vector<vector<double> > *candidate_scores,
-    vector<int> *heads,
-    double *value) {
+  vector<bool> *disabled,
+  vector<vector<int> > *candidate_heads,
+  vector<vector<double> > *candidate_scores,
+  vector<int> *heads,
+  double *value) {
   // Original number of nodes (including the root).
   int length = disabled->size();
 
@@ -410,7 +437,7 @@ void DependencyDecoder::RunChuLiuEdmondsIteration(
     int best = -1;
     for (int k = 0; k < (*candidate_heads)[m].size(); ++k) {
       if (best < 0 ||
-          (*candidate_scores)[m][k] > (*candidate_scores)[m][best]) {
+          (*candidate_scores)[m][k] >(*candidate_scores)[m][best]) {
         best = k;
       }
     }
@@ -510,8 +537,8 @@ void DependencyDecoder::RunChuLiuEdmondsIteration(
     // it will be dropped from the list of candidate heads.
     (*candidate_heads)[m][l] = representative;
     (*candidate_scores)[m][l] = best_score;
-    (*candidate_heads)[m].resize(l+1);
-    (*candidate_scores)[m].resize(l+1);
+    (*candidate_heads)[m].resize(l + 1);
+    (*candidate_scores)[m].resize(l + 1);
   }
 
   // 2) Update the score of each candidate parent of the cycle supernode.
@@ -574,6 +601,8 @@ void DependencyDecoder::RunChuLiuEdmondsIteration(
   }
 }
 
+// Run the Chu-Liu-Edmonds algorithm for finding a maximal weighted spanning
+// tree.
 void DependencyDecoder::RunChuLiuEdmonds(int sentence_length,
                                          const vector<DependencyPartArc*> &arcs,
                                          const vector<double> &scores,
@@ -594,12 +623,480 @@ void DependencyDecoder::RunChuLiuEdmonds(int sentence_length,
                             &candidate_scores, heads, value);
 }
 
+// Run Eisner's algorithm for finding a maximal weighted projective dependency
+// tree.
+void DependencyDecoder::RunEisner(int sentence_length,
+                                  const vector<DependencyPartArc*> &arcs,
+                                  const vector<double> &scores,
+                                  vector<int> *heads,
+                                  double *value) {
+  vector<vector<int> > index_arcs(sentence_length,
+                                  vector<int>(sentence_length, -1));
+  int num_arcs = arcs.size();
+  for (int r = 0; r < num_arcs; ++r) {
+    int h = arcs[r]->head();
+    int m = arcs[r]->modifier();
+    index_arcs[h][m] = r;
+  }
+
+  heads->assign(sentence_length, -1);
+
+  // Initialize CKY table.
+  vector<vector<double> > complete_spans(sentence_length, vector<double>(
+    sentence_length, 0.0));
+  vector<vector<int> > complete_backtrack(sentence_length,
+                                          vector<int>(sentence_length, -1));
+  vector<double> incomplete_spans(num_arcs);
+  vector<int> incomplete_backtrack(num_arcs, -1);
+
+  // Loop from smaller items to larger items.
+  for (int k = 1; k < sentence_length; ++k) {
+    for (int s = 1; s < sentence_length - k; ++s) {
+      int t = s + k;
+
+      // First, create incomplete items.
+      int left_arc_index = index_arcs[t][s];
+      int right_arc_index = index_arcs[s][t];
+      if (left_arc_index >= 0 || right_arc_index >= 0) {
+        double best_value = -std::numeric_limits<double>::infinity();
+        int best = -1;
+        for (int u = s; u < t; ++u) {
+          double val = complete_spans[s][u] + complete_spans[t][u + 1];
+          if (best < 0 || val > best_value) {
+            best = u;
+            best_value = val;
+          }
+        }
+        if (left_arc_index >= 0) {
+          incomplete_spans[left_arc_index] =
+            best_value + scores[left_arc_index];
+          incomplete_backtrack[left_arc_index] = best;
+        }
+        if (right_arc_index >= 0) {
+          incomplete_spans[right_arc_index] =
+            best_value + scores[right_arc_index];
+          incomplete_backtrack[right_arc_index] = best;
+        }
+      }
+
+      // Second, create complete items.
+      // 1) Left complete item.
+      double best_value = -std::numeric_limits<double>::infinity();
+      int best = -1;
+      for (int u = s; u < t; ++u) {
+        int left_arc_index = index_arcs[t][u];
+        if (left_arc_index >= 0) {
+          double val = complete_spans[u][s] + incomplete_spans[left_arc_index];
+          if (best < 0 || val > best_value) {
+            best = u;
+            best_value = val;
+          }
+        }
+      }
+      complete_spans[t][s] = best_value;
+      complete_backtrack[t][s] = best;
+
+      // 2) Right complete item.
+      best_value = -std::numeric_limits<double>::infinity();
+      best = -1;
+      for (int u = s + 1; u <= t; ++u) {
+        int right_arc_index = index_arcs[s][u];
+        if (right_arc_index >= 0) {
+          double val = complete_spans[u][t] + incomplete_spans[right_arc_index];
+          if (best < 0 || val > best_value) {
+            best = u;
+            best_value = val;
+          }
+        }
+      }
+      complete_spans[s][t] = best_value;
+      complete_backtrack[s][t] = best;
+    }
+  }
+
+  // Get the optimal (single) root.
+  double best_value = -std::numeric_limits<double>::infinity();
+  int best = -1;
+  for (int s = 1; s < sentence_length; ++s) {
+    int arc_index = index_arcs[0][s];
+    if (arc_index >= 0) {
+      double val = complete_spans[s][1] + complete_spans[s][sentence_length - 1] +
+        scores[arc_index];
+      if (best < 0 || val > best_value) {
+        best = s;
+        best_value = val;
+      }
+    }
+  }
+
+  *value = best_value;
+  (*heads)[best] = 0;
+
+  // Backtrack.
+  RunEisnerBacktrack(incomplete_backtrack, complete_backtrack, index_arcs, best,
+                     1, true, heads);
+  RunEisnerBacktrack(incomplete_backtrack, complete_backtrack, index_arcs, best,
+                     sentence_length - 1, true, heads);
+
+  //*value = complete_spans[0][sentence_length-1];
+  //RunEisnerBacktrack(incomplete_backtrack, complete_backtrack, index_arcs, 0,
+  //                   sentence_length-1, true, heads);
+}
+
+void DependencyDecoder::RunEisnerBacktrack(
+  const vector<int> &incomplete_backtrack,
+  const vector<vector<int> > &complete_backtrack,
+  const vector<vector<int> > &index_arcs,
+  int h, int m, bool complete, vector<int> *heads) {
+  if (h == m) return;
+  if (complete) {
+    CHECK_GE(h, 0);
+    CHECK_LT(h, complete_backtrack.size());
+    CHECK_GE(m, 0);
+    CHECK_LT(m, complete_backtrack.size());
+    int u = complete_backtrack[h][m];
+    CHECK_GE(u, 0) << h << " " << m;
+    RunEisnerBacktrack(incomplete_backtrack, complete_backtrack, index_arcs,
+                       h, u, false, heads);
+    RunEisnerBacktrack(incomplete_backtrack, complete_backtrack, index_arcs,
+                       u, m, true, heads);
+  } else {
+    int r = index_arcs[h][m];
+    CHECK_GE(r, 0);
+    CHECK_LT(r, incomplete_backtrack.size());
+    CHECK_GE(h, 0);
+    CHECK_LT(h, heads->size());
+    CHECK_GE(m, 0);
+    CHECK_LT(m, heads->size());
+    (*heads)[m] = h;
+    int u = incomplete_backtrack[r];
+    if (h < m) {
+      RunEisnerBacktrack(incomplete_backtrack, complete_backtrack, index_arcs,
+                         h, u, true, heads);
+      RunEisnerBacktrack(incomplete_backtrack, complete_backtrack, index_arcs,
+                         m, u + 1, true, heads);
+    } else {
+      RunEisnerBacktrack(incomplete_backtrack, complete_backtrack, index_arcs,
+                         m, u, true, heads);
+      RunEisnerBacktrack(incomplete_backtrack, complete_backtrack, index_arcs,
+                         h, u + 1, true, heads);
+    }
+  }
+}
+
+// Run Eisner's inside algorithm (used to evaluate the log-partition function
+// and compute marginals in a projective model).
+void DependencyDecoder::RunEisnerInside(
+  int sentence_length,
+  const vector<DependencyPartArc*> &arcs,
+  const vector<double> &scores,
+  vector<double> *inside_incomplete_spans,
+  vector<vector<double> > *inside_complete_spans,
+  double *log_partition_function) {
+  vector<vector<int> > index_arcs(sentence_length,
+                                  vector<int>(sentence_length, -1));
+  int num_arcs = arcs.size();
+  for (int r = 0; r < num_arcs; ++r) {
+    int h = arcs[r]->head();
+    int m = arcs[r]->modifier();
+    index_arcs[h][m] = r;
+  }
+
+  // Initialize CKY table.
+  inside_incomplete_spans->assign(num_arcs, 0.0);
+  inside_complete_spans->resize(sentence_length);
+  for (int s = 0; s < sentence_length; ++s) {
+    (*inside_complete_spans)[s].assign(sentence_length, 0.0);
+  }
+
+  // Loop from smaller items to larger items.
+  for (int k = 1; k < sentence_length; ++k) {
+    for (int s = 1; s < sentence_length - k; ++s) {
+      int t = s + k;
+
+      // First, create incomplete items.
+      int left_arc_index = index_arcs[t][s];
+      int right_arc_index = index_arcs[s][t];
+      if (left_arc_index >= 0 || right_arc_index >= 0) {
+        LogValD sum = LogValD::Zero();
+        for (int u = s; u < t; ++u) {
+          double val =
+            (*inside_complete_spans)[s][u] + (*inside_complete_spans)[t][u + 1];
+          sum += LogValD(val, false);
+        }
+        if (left_arc_index >= 0) {
+          (*inside_incomplete_spans)[left_arc_index] =
+            sum.logabs() + scores[left_arc_index];
+        }
+        if (right_arc_index >= 0) {
+          (*inside_incomplete_spans)[right_arc_index] =
+            sum.logabs() + scores[right_arc_index];
+        }
+      }
+
+      // Second, create complete items.
+      // 1) Left complete item.
+      LogValD sum = LogValD::Zero();
+      for (int u = s; u < t; ++u) {
+        int left_arc_index = index_arcs[t][u];
+        if (left_arc_index >= 0) {
+          double val = (*inside_complete_spans)[u][s] +
+            (*inside_incomplete_spans)[left_arc_index];
+          sum += LogValD(val, false);
+        }
+      }
+      (*inside_complete_spans)[t][s] = sum.logabs();
+      //LOG(INFO) << "inside_complete[" << t << "][" << s << "] = " << (*inside_complete_spans)[t][s];
+
+      // 2) Right complete item.
+      sum = LogValD::Zero();
+      for (int u = s + 1; u <= t; ++u) {
+        int right_arc_index = index_arcs[s][u];
+        if (right_arc_index >= 0) {
+          double val = (*inside_complete_spans)[u][t] +
+            (*inside_incomplete_spans)[right_arc_index];
+          sum += LogValD(val, false);
+        }
+      }
+      (*inside_complete_spans)[s][t] = sum.logabs();
+      //LOG(INFO) << "inside_complete[" << s << "][" << t << "] = " << (*inside_complete_spans)[s][t];
+    }
+  }
+
+  // Handle the (single) root.
+  LogValD sum = LogValD::Zero();
+  for (int s = 1; s < sentence_length; ++s) {
+    int arc_index = index_arcs[0][s];
+    if (arc_index >= 0) {
+      (*inside_incomplete_spans)[arc_index] = (*inside_complete_spans)[s][1] +
+        scores[arc_index];
+      double val = (*inside_incomplete_spans)[arc_index] +
+        (*inside_complete_spans)[s][sentence_length - 1];
+      sum += LogValD(val, false);
+    }
+  }
+  (*inside_complete_spans)[0][sentence_length - 1] = sum.logabs();
+  //LOG(INFO) << "inside_complete[" << 0 << "][" << sentence_length-1 << "] = " << (*inside_complete_spans)[0][sentence_length-1];
+
+  *log_partition_function = (*inside_complete_spans)[0][sentence_length - 1];
+}
+
+// Run Eisner's inside algorithm (used to evaluate the log-partition function
+// and compute marginals in a projective model).
+void DependencyDecoder::RunEisnerOutside(
+  int sentence_length,
+  const vector<DependencyPartArc*> &arcs,
+  const vector<double> &scores,
+  const vector<double> &inside_incomplete_spans,
+  const vector<vector<double> > &inside_complete_spans,
+  vector<double> *outside_incomplete_spans,
+  vector<vector<double> > *outside_complete_spans) {
+  vector<vector<int> > index_arcs(sentence_length,
+                                  vector<int>(sentence_length, -1));
+  int num_arcs = arcs.size();
+  for (int r = 0; r < num_arcs; ++r) {
+    int h = arcs[r]->head();
+    int m = arcs[r]->modifier();
+    index_arcs[h][m] = r;
+  }
+
+  // Initialize CKY table.
+  outside_incomplete_spans->assign(num_arcs, 0.0);
+  outside_complete_spans->resize(sentence_length);
+  for (int s = 0; s < sentence_length; ++s) {
+    (*outside_complete_spans)[s].assign(sentence_length, 0.0);
+  }
+
+  // Handle the root.
+  for (int s = 1; s < sentence_length; ++s) {
+    int arc_index = index_arcs[0][s];
+    if (arc_index >= 0) {
+      (*outside_incomplete_spans)[arc_index] =
+        (*outside_complete_spans)[0][sentence_length - 1] +
+        inside_complete_spans[s][sentence_length - 1];
+    }
+  }
+
+  // Loop from larger items to smaller items.
+  for (int k = sentence_length - 2; k > 0; --k) {
+    for (int s = 1; s < sentence_length - k; ++s) {
+      int t = s + k;
+
+      // First, create complete items.
+      // 1) Left complete item.
+      LogValD sum = LogValD::Zero();
+      for (int u = 0; u < s; ++u) {
+        if (u == 0 && t < sentence_length - 1) continue;
+        int arc_index = index_arcs[u][s];
+        if (arc_index >= 0) {
+          double val = (*outside_complete_spans)[u][t] +
+            inside_incomplete_spans[arc_index];
+          sum += LogValD(val, false);
+        }
+      }
+      for (int u = t + 1; u < sentence_length; ++u) {
+        int left_arc_index = index_arcs[u][s];
+        int right_arc_index = index_arcs[s][u];
+        if (right_arc_index >= 0) {
+          double val = (*outside_incomplete_spans)[right_arc_index] +
+            inside_complete_spans[u][t + 1] + scores[right_arc_index];
+          sum += LogValD(val, false);
+        }
+        if (left_arc_index >= 0) {
+          double val = (*outside_incomplete_spans)[left_arc_index] +
+            inside_complete_spans[u][t + 1] + scores[left_arc_index];
+          sum += LogValD(val, false);
+        }
+      }
+      (*outside_complete_spans)[s][t] = sum.logabs();
+
+      // 2) Right complete item.
+      sum = LogValD::Zero();
+      for (int u = t + 1; u < sentence_length; ++u) {
+        int arc_index = index_arcs[u][t];
+        if (arc_index >= 0) {
+          double val = (*outside_complete_spans)[u][s] +
+            inside_incomplete_spans[arc_index];
+          sum += LogValD(val, false);
+        }
+      }
+      for (int u = 0; u < s; ++u) {
+        if (u == 0 && s > 1) continue;
+        if (u == 0) {
+          // Must have s = 1.
+          int right_arc_index = index_arcs[u][t];
+          if (right_arc_index >= 0) {
+            double val = (*outside_incomplete_spans)[right_arc_index] +
+              scores[right_arc_index];
+            sum += LogValD(val, false);
+          }
+        } else {
+          int left_arc_index = index_arcs[t][u];
+          int right_arc_index = index_arcs[u][t];
+          if (right_arc_index >= 0) {
+            double val = (*outside_incomplete_spans)[right_arc_index] +
+              inside_complete_spans[u][s - 1] + scores[right_arc_index];
+            sum += LogValD(val, false);
+          }
+          if (left_arc_index >= 0) {
+            double val = (*outside_incomplete_spans)[left_arc_index] +
+              inside_complete_spans[u][s - 1] + scores[left_arc_index];
+            sum += LogValD(val, false);
+          }
+        }
+      }
+      (*outside_complete_spans)[t][s] = sum.logabs();
+
+      // Second, create incomplete items.
+      int left_arc_index = index_arcs[t][s];
+      int right_arc_index = index_arcs[s][t];
+      if (right_arc_index >= 0) {
+        LogValD sum = LogValD::Zero();
+        for (int u = t; u < sentence_length; ++u) {
+          double val =
+            (*outside_complete_spans)[s][u] + inside_complete_spans[t][u];
+          sum += LogValD(val, false);
+        }
+        (*outside_incomplete_spans)[right_arc_index] = sum.logabs();
+      }
+      if (left_arc_index >= 0) {
+        LogValD sum = LogValD::Zero();
+        for (int u = 1; u <= s; ++u) {
+          double val =
+            (*outside_complete_spans)[t][u] + inside_complete_spans[s][u];
+          sum += LogValD(val, false);
+        }
+        (*outside_incomplete_spans)[left_arc_index] = sum.logabs();
+      }
+    }
+  }
+}
+
+// Marginal decoder for the projective basic model; it runs Eisner's
+// inside-outside algorithm.
+void DependencyDecoder::DecodeInsideOutside(Instance *instance, Parts *parts,
+                                            const vector<double> &scores,
+                                            vector<double> *predicted_output,
+                                            double *log_partition_function,
+                                            double *entropy) {
+  int sentence_length =
+    static_cast<DependencyInstanceNumeric*>(instance)->size();
+  DependencyParts *dependency_parts = static_cast<DependencyParts*>(parts);
+
+  int offset_arcs, num_arcs;
+  dependency_parts->GetOffsetArc(&offset_arcs, &num_arcs);
+  vector<DependencyPartArc*> arcs(num_arcs);
+  vector<double> scores_arcs(num_arcs);
+  for (int r = 0; r < num_arcs; ++r) {
+    arcs[r] = static_cast<DependencyPartArc*>((*parts)[offset_arcs + r]);
+    scores_arcs[r] = scores[offset_arcs + r];
+  }
+
+  vector<double> inside_incomplete_spans;
+  vector<vector<double> > inside_complete_spans;
+  vector<double> outside_incomplete_spans;
+  vector<vector<double> > outside_complete_spans;
+
+  RunEisnerInside(sentence_length, arcs, scores_arcs, &inside_incomplete_spans,
+                  &inside_complete_spans, log_partition_function);
+
+  RunEisnerOutside(sentence_length, arcs, scores_arcs, inside_incomplete_spans,
+                   inside_complete_spans, &outside_incomplete_spans,
+                   &outside_complete_spans);
+
+  // Compute the marginals and entropy.
+  predicted_output->resize(parts->size());
+  *entropy = *log_partition_function;
+
+  //LOG(INFO) << "logZ = " << *log_partition_function;
+
+  for (int r = 0; r < num_arcs; ++r) {
+    int h = static_cast<DependencyPartArc*>((*parts)[offset_arcs + r])->head();
+    int m = static_cast<DependencyPartArc*>((*parts)[offset_arcs + r])->modifier();
+    double value = exp(inside_incomplete_spans[r] +
+                       outside_incomplete_spans[r] -
+                       (*log_partition_function));
+
+    //LOG(INFO) << "inside[" << h << "][" << m << "] = " << inside_incomplete_spans[r];
+    //LOG(INFO) << "outside[" << h << "][" << m << "] = " << outside_incomplete_spans[r];
+    //LOG(INFO) << "Score arc[" << h << "][" << m << "] = " << scores[offset_arcs + r];
+    //LOG(INFO) << "Marginal arc[" << h << "][" << m << "] = " << value;
+    if (value > 1.0) {
+      if (!NEARLY_ZERO_TOL(value - 1.0, 1e-6)) {
+        LOG(INFO) << "Marginals truncated to one (" << value << ")";
+      }
+    }
+
+    (*predicted_output)[offset_arcs + r] = value;
+    *entropy -= (*predicted_output)[offset_arcs + r] * scores[offset_arcs + r];
+  }
+  if (*entropy < 0.0) {
+    if (!NEARLY_ZERO_TOL(*entropy, 1e-6)) {
+      LOG(INFO) << "Entropy truncated to zero (" << *entropy << ")";
+    }
+    *entropy = 0.0;
+  }
+
+#if 0
+  vector<double> sum(sentence_length, 0.0);
+  for (int r = 0; r < num_arcs; ++r) {
+    int h = static_cast<DependencyPartArc*>((*parts)[offset_arcs + r])->head();
+    int m = static_cast<DependencyPartArc*>((*parts)[offset_arcs + r])->modifier();
+    sum[m] += (*predicted_output)[offset_arcs + r];
+    if (h == 0) sum[0] += (*predicted_output)[offset_arcs + r];
+  }
+  for (int m = 1; m < sentence_length; ++m) {
+    LOG(INFO) << "Sum " << m << " = " << sum[m];
+  }
+#endif
+}
+
 // Marginal decoder for the basic model; it invokes the matrix-tree theorem.
 void DependencyDecoder::DecodeMatrixTree(Instance *instance, Parts *parts,
-                                    const vector<double> &scores,
-                                    vector<double> *predicted_output,
-                                    double *log_partition_function,
-                                    double *entropy) {
+                                         const vector<double> &scores,
+                                         vector<double> *predicted_output,
+                                         double *log_partition_function,
+                                         double *entropy) {
   int sentence_length =
     static_cast<DependencyInstanceNumeric*>(instance)->size();
   DependencyParts *dependency_parts = static_cast<DependencyParts*>(parts);
@@ -607,7 +1104,7 @@ void DependencyDecoder::DecodeMatrixTree(Instance *instance, Parts *parts,
   // Matrix for storing the potentials.
   Eigen::MatrixXlogd potentials(sentence_length, sentence_length);
   // Kirchhoff matrix.
-  Eigen::MatrixXlogd kirchhoff(sentence_length-1, sentence_length-1);
+  Eigen::MatrixXlogd kirchhoff(sentence_length - 1, sentence_length - 1);
 
   // Compute an offset to improve numerical stability. This is a constant that
   // is subtracted from all scores.
@@ -633,7 +1130,7 @@ void DependencyDecoder::DecodeMatrixTree(Instance *instance, Parts *parts,
   // Set the Kirchhoff matrix.
   for (int h = 0; h < sentence_length - 1; ++h) {
     for (int m = 0; m < sentence_length - 1; ++m) {
-      kirchhoff(h, m) = -potentials(m+1, h+1);
+      kirchhoff(h, m) = -potentials(m + 1, h + 1);
     }
   }
   for (int m = 1; m < sentence_length; ++m) {
@@ -641,24 +1138,24 @@ void DependencyDecoder::DecodeMatrixTree(Instance *instance, Parts *parts,
     for (int h = 0; h < sentence_length; ++h) {
       sum += potentials(m, h);
     }
-    kirchhoff(m-1, m-1) = sum;
+    kirchhoff(m - 1, m - 1) = sum;
   }
 
   // Inverse of the Kirchoff matrix.
   Eigen::FullPivLU<Eigen::MatrixXlogd> lu(kirchhoff);
   Eigen::MatrixXlogd inverted_kirchhoff = lu.inverse();
   *log_partition_function = lu.determinant().logabs() +
-      constant * (sentence_length - 1);
+    constant * (sentence_length - 1);
 
   Eigen::MatrixXlogd marginals(sentence_length, sentence_length);
   for (int h = 0; h < sentence_length; ++h) {
     marginals(0, h) = LogValD::Zero();
   }
   for (int m = 1; m < sentence_length; ++m) {
-    marginals(m, 0) = potentials(m, 0) * inverted_kirchhoff(m-1, m-1);
+    marginals(m, 0) = potentials(m, 0) * inverted_kirchhoff(m - 1, m - 1);
     for (int h = 1; h < sentence_length; ++h) {
-      marginals(m, h) = potentials(m, h) * 
-        (inverted_kirchhoff(m-1, m-1) - inverted_kirchhoff(m-1, h-1));
+      marginals(m, h) = potentials(m, h) *
+        (inverted_kirchhoff(m - 1, m - 1) - inverted_kirchhoff(m - 1, h - 1));
     }
   }
 
@@ -714,6 +1211,10 @@ void DependencyDecoder::DecodeFactorGraph(Instance *instance, Parts *parts,
                                       &num_next_siblings);
   int offset_grandparents, num_grandparents;
   dependency_parts->GetOffsetGrandpar(&offset_grandparents, &num_grandparents);
+  int offset_grandsiblings, num_grandsiblings;
+  dependency_parts->GetOffsetGrandSibl(&offset_grandsiblings, &num_grandsiblings);
+  int offset_trisiblings, num_trisiblings;
+  dependency_parts->GetOffsetTriSibl(&offset_trisiblings, &num_trisiblings);
   int offset_nonprojective, num_nonprojective;
   dependency_parts->GetOffsetNonproj(&offset_nonprojective, &num_nonprojective);
   int offset_path, num_path;
@@ -725,6 +1226,8 @@ void DependencyDecoder::DecodeFactorGraph(Instance *instance, Parts *parts,
   bool use_arbitrary_sibling_parts = (num_siblings > 0);
   bool use_next_sibling_parts = (num_next_siblings > 0);
   bool use_grandparent_parts = (num_grandparents > 0);
+  bool use_grandsibling_parts = (num_grandsiblings > 0);
+  bool use_trisibling_parts = (num_trisiblings > 0);
   bool use_nonprojective_arc_parts = (num_nonprojective > 0);
   bool use_path_parts = (num_path > 0);
   bool use_head_bigram_parts = (num_bigrams > 0);
@@ -732,6 +1235,7 @@ void DependencyDecoder::DecodeFactorGraph(Instance *instance, Parts *parts,
   // Define optional configurations of the factor graph.
   bool use_tree_factor = true;
   bool use_head_automata = true;
+  bool use_trigram_head_automata = true;
   bool use_grandparent_head_automata = true;
   bool use_head_bigram_sequence_factor = true;
   // Evidence vector that allows to assign evidence to each variable.
@@ -745,6 +1249,7 @@ void DependencyDecoder::DecodeFactorGraph(Instance *instance, Parts *parts,
   if (use_nonprojective_arc_parts || use_path_parts) {
     use_tree_factor = false;
     use_head_automata = false;
+    use_trigram_head_automata = false;
     use_grandparent_head_automata = false;
     use_head_bigram_sequence_factor = false;
     add_evidence = true;
@@ -782,7 +1287,7 @@ void DependencyDecoder::DecodeFactorGraph(Instance *instance, Parts *parts,
                          vector<bool>(sentence->size(), false));
       for (int r = 0; r < num_arcs; ++r) {
         DependencyPartArc *arc = static_cast<DependencyPartArc*>(
-            (*dependency_parts)[offset_arcs + r]);
+          (*dependency_parts)[offset_arcs + r]);
         int h = arc->head();
         int m = arc->modifier();
         graph_paths[h][m] = true;
@@ -794,7 +1299,7 @@ void DependencyDecoder::DecodeFactorGraph(Instance *instance, Parts *parts,
         graph_paths[i][i] = true;
       }
       gettimeofday(&end, NULL);
-      double elapsed_time_paths = diff_ms(end,start);
+      double elapsed_time_paths = diff_ms(end, start);
       int num_possible_paths = 0;
       for (int i = 0; i < sentence->size(); ++i) {
         for (int j = 0; j < sentence->size(); ++j) {
@@ -802,9 +1307,9 @@ void DependencyDecoder::DecodeFactorGraph(Instance *instance, Parts *parts,
         }
       }
       VLOG(2) << num_arcs << " possible arcs and "
-              << num_possible_paths << " possible paths in "
-              << sentence->size() * sentence->size()
-              << " (took " << elapsed_time_paths << " ms.)";
+        << num_possible_paths << " possible paths in "
+        << sentence->size() * sentence->size()
+        << " (took " << elapsed_time_paths << " ms.)";
     }
   }
 
@@ -830,7 +1335,8 @@ void DependencyDecoder::DecodeFactorGraph(Instance *instance, Parts *parts,
       arcs[r] = static_cast<DependencyPartArc*>((*parts)[offset_arcs + r]);
     }
     AD3::FactorTree *factor = new AD3::FactorTree;
-    factor->Initialize(sentence->size(), arcs, this);
+    bool projective = pipe_->GetDependencyOptions()->projective();
+    factor->Initialize(projective, sentence->size(), arcs, this);
     factor_graph->DeclareFactor(factor, local_variables, true);
     factor_part_indices_.push_back(-1);
   } else {
@@ -841,7 +1347,7 @@ void DependencyDecoder::DecodeFactorGraph(Instance *instance, Parts *parts,
         int r = dependency_parts->FindArc(h, m);
         if (r < 0) continue;
         local_variables.push_back(variables[r]);
-      }      
+      }
       factor_graph->CreateFactorXOR(local_variables);
       factor_part_indices_.push_back(-1);
     }
@@ -853,7 +1359,7 @@ void DependencyDecoder::DecodeFactorGraph(Instance *instance, Parts *parts,
     int offset_flow_variables = variables.size();
     for (int r = 0; r < num_arcs; ++r) {
       DependencyPartArc *arc =
-          static_cast<DependencyPartArc*>((*dependency_parts)[offset_arcs + r]);
+        static_cast<DependencyPartArc*>((*dependency_parts)[offset_arcs + r]);
       int h = arc->head();
       int m = arc->modifier();
       for (int k = 0; k < sentence->size(); ++k) {
@@ -880,7 +1386,7 @@ void DependencyDecoder::DecodeFactorGraph(Instance *instance, Parts *parts,
     offset_path_variables = variables.size();
     for (int d = 0; d < sentence->size(); ++d) {
       for (int a = 0; a < sentence->size(); ++a) {
-        // Create path variable denoting that there is path from a to d. 
+        // Create path variable denoting that there is path from a to d.
         AD3::BinaryVariable* variable = factor_graph->CreateBinaryVariable();
         // Each word descends from the root and from itself.
         int evidence_value = -1;
@@ -901,16 +1407,16 @@ void DependencyDecoder::DecodeFactorGraph(Instance *instance, Parts *parts,
       }
     }
 
-    // Create a "path builder" factor. The following constraints will be 
+    // Create a "path builder" factor. The following constraints will be
     // imposed:
     // sum_{i=0}^{n} f_{ijk} = p_{jk} for each j,k with j \ne 0.
     // The case j=k is already addressed in the "single parent" factors.
     //int offset_path_builder_factors = factors.size();
     vector<vector<vector<AD3::BinaryVariable*> > > local_variables_path_builder(
-        sentence->size(), vector<vector<AD3::BinaryVariable*> >(sentence->size()));
+      sentence->size(), vector<vector<AD3::BinaryVariable*> >(sentence->size()));
     for (int r = 0; r < num_arcs; ++r) {
       DependencyPartArc *arc =
-          static_cast<DependencyPartArc*>((*dependency_parts)[offset_arcs + r]);
+        static_cast<DependencyPartArc*>((*dependency_parts)[offset_arcs + r]);
       int m = arc->modifier();
       for (int k = 0; k < sentence->size(); ++k) {
         int index = offset_flow_variables + k + r*sentence->size();
@@ -926,17 +1432,17 @@ void DependencyDecoder::DecodeFactorGraph(Instance *instance, Parts *parts,
       }
     }
 
-    // Create the "flow delta" factor. The following constraints will be 
+    // Create the "flow delta" factor. The following constraints will be
     // imposed:
     // sum_{j=0}^{n} f_{ijk} = p_{ik} for each i,k s.t. i \ne k.
     // TODO: remove the comment below, because that's not really done?
     // Remark: the f_{ijj} variables are replaced by the arc variables z_{ij}.
     //int offset_flow_delta_factors = factors.size();
     vector<vector<vector<AD3::BinaryVariable*> > > local_variables_flow_delta(
-        sentence->size(), vector<vector<AD3::BinaryVariable*> >(sentence->size()));
+      sentence->size(), vector<vector<AD3::BinaryVariable*> >(sentence->size()));
     for (int r = 0; r < num_arcs; ++r) {
       DependencyPartArc *arc =
-          static_cast<DependencyPartArc*>((*dependency_parts)[offset_arcs + r]);
+        static_cast<DependencyPartArc*>((*dependency_parts)[offset_arcs + r]);
       int h = arc->head();
       for (int k = 0; k < sentence->size(); ++k) {
         if (h == k) continue;
@@ -957,7 +1463,7 @@ void DependencyDecoder::DecodeFactorGraph(Instance *instance, Parts *parts,
             variables[index]->SetLogPotential(log_potential_zero);
             // TODO: keep track of the original log-potential.
           }
-          continue; 
+          continue;
         }
         local_variables_flow_delta[a][d].push_back(variables[index]);
         factor_graph->CreateFactorXOROUT(local_variables_flow_delta[a][d]);
@@ -991,7 +1497,7 @@ void DependencyDecoder::DecodeFactorGraph(Instance *instance, Parts *parts,
   if (use_arbitrary_sibling_parts) {
     for (int r = 0; r < num_siblings; ++r) {
       DependencyPartSibl *part = static_cast<DependencyPartSibl*>(
-          (*dependency_parts)[offset_siblings + r]);
+        (*dependency_parts)[offset_siblings + r]);
       int r1 = dependency_parts->FindArc(part->head(), part->modifier());
       int r2 = dependency_parts->FindArc(part->head(), part->sibling());
       CHECK_GE(r1, 0);
@@ -1033,6 +1539,102 @@ void DependencyDecoder::DecodeFactorGraph(Instance *instance, Parts *parts,
   }
 
   //////////////////////////////////////////////////////////////////////
+  // Build grandsibling and tri-sibling factors without automata.
+  //////////////////////////////////////////////////////////////////////
+  if (!use_grandparent_head_automata) {
+    // TODO(afm): Implement grand-siblings without automata.
+    CHECK_EQ(num_grandsiblings, 0);
+  }
+  if (!use_trigram_head_automata) {
+    // TODO(afm): Implement tri-siblings without automata.
+    CHECK_EQ(num_trisiblings, 0);
+  }
+
+  //////////////////////////////////////////////////////////////////////
+  // Build trisibling factors with automata.
+  //////////////////////////////////////////////////////////////////////
+  if (use_trigram_head_automata && num_trisiblings > 0) {
+    // Get all the trisiblings, indices, etc.
+    vector<vector<DependencyPartTriSibl*> > left_trisiblings(sentence->size());
+    vector<vector<DependencyPartTriSibl*> > right_trisiblings(sentence->size());
+    vector<vector<double> > left_scores(sentence->size());
+    vector<vector<double> > right_scores(sentence->size());
+    vector<vector<int> > left_indices(sentence->size());
+    vector<vector<int> > right_indices(sentence->size());
+    for (int r = 0; r < num_trisiblings; ++r) {
+      DependencyPartTriSibl *trisibling =
+        static_cast<DependencyPartTriSibl*>(
+          (*parts)[offset_trisiblings + r]);
+      if (trisibling->head() > trisibling->other_sibling()) {
+        // Left trisibling.
+        left_trisiblings[trisibling->head()].push_back(trisibling);
+        left_scores[trisibling->head()].push_back(
+          scores[offset_trisiblings + r]);
+        // Save the part index to get the posterior later.
+        left_indices[trisibling->head()].push_back(offset_trisiblings + r);
+      } else {
+        // Right trisibling.
+        right_trisiblings[trisibling->head()].push_back(trisibling);
+        right_scores[trisibling->head()].push_back(
+          scores[offset_trisiblings + r]);
+        // Save the part index to get the posterior later.
+        right_indices[trisibling->head()].push_back(offset_trisiblings + r);
+      }
+    }
+
+    // Now, go through each head and create left and right automata.
+    for (int h = 0; h < sentence->size(); ++h) {
+      // Build left head automaton.
+      vector<AD3::BinaryVariable*> local_variables;
+      vector<DependencyPartArc*> arcs;
+      for (int m = h - 1; m >= 1; --m) {
+        int r = dependency_parts->FindArc(h, m);
+        if (r < 0) continue;
+        int index = r - offset_arcs;
+        local_variables.push_back(variables[index]);
+        DependencyPartArc *arc =
+          static_cast<DependencyPartArc*>((*parts)[offset_arcs + r]);
+        arcs.push_back(arc);
+      }
+      //if (arcs.size() == 0) continue; // Do not create an empty factor.
+
+      AD3::FactorTrigramHeadAutomaton *left_factor =
+        new AD3::FactorTrigramHeadAutomaton;
+      left_factor->Initialize(arcs, left_trisiblings[h]);
+      left_factor->SetAdditionalLogPotentials(left_scores[h]);
+      factor_graph->DeclareFactor(left_factor, local_variables, true);
+      factor_part_indices_.push_back(-1);
+      additional_part_indices.insert(additional_part_indices.end(),
+                                     left_indices[h].begin(),
+                                     left_indices[h].end());
+
+      // Build right head automaton.
+      local_variables.clear();
+      arcs.clear();
+      for (int m = h + 1; m < sentence->size(); ++m) {
+        int r = dependency_parts->FindArc(h, m);
+        if (r < 0) continue;
+        int index = r - offset_arcs;
+        local_variables.push_back(variables[index]);
+        DependencyPartArc *arc =
+          static_cast<DependencyPartArc*>((*parts)[offset_arcs + r]);
+        arcs.push_back(arc);
+      }
+      //if (arcs.size() == 0) continue; // Do not create an empty factor.
+
+      AD3::FactorTrigramHeadAutomaton *right_factor =
+        new AD3::FactorTrigramHeadAutomaton;
+      right_factor->Initialize(arcs, right_trisiblings[h]);
+      right_factor->SetAdditionalLogPotentials(right_scores[h]);
+      factor_graph->DeclareFactor(right_factor, local_variables, true);
+      factor_part_indices_.push_back(-1);
+      additional_part_indices.insert(additional_part_indices.end(),
+                                     right_indices[h].begin(),
+                                     right_indices[h].end());
+    }
+  }
+
+  //////////////////////////////////////////////////////////////////////
   // Build next sibling factors.
   //////////////////////////////////////////////////////////////////////
   if (use_head_automata || use_grandparent_head_automata) {
@@ -1043,28 +1645,60 @@ void DependencyDecoder::DecodeFactorGraph(Instance *instance, Parts *parts,
     vector<vector<double> > right_grandparent_scores(sentence->size());
     vector<vector<int> > left_grandparent_indices(sentence->size());
     vector<vector<int> > right_grandparent_indices(sentence->size());
-    if (use_grandparent_head_automata && 
+    if (use_grandparent_head_automata &&
         use_grandparent_parts &&
         use_next_sibling_parts) {
       for (int r = 0; r < num_grandparents; ++r) {
         DependencyPartGrandpar *part = static_cast<DependencyPartGrandpar*>(
-            (*dependency_parts)[offset_grandparents + r]);
+          (*dependency_parts)[offset_grandparents + r]);
         if (part->head() > part->modifier()) {
           // Left sibling.
           left_grandparents[part->head()].push_back(part);
           left_grandparent_scores[part->head()].push_back(
-              scores[offset_grandparents + r]);
+            scores[offset_grandparents + r]);
           // Save the part index to get the posterior later.
           left_grandparent_indices[part->head()].push_back(
-              offset_grandparents + r);
+            offset_grandparents + r);
         } else {
           // Right sibling.
           right_grandparents[part->head()].push_back(part);
           right_grandparent_scores[part->head()].push_back(
-              scores[offset_grandparents + r]);
+            scores[offset_grandparents + r]);
           // Save the part index to get the posterior later.
           right_grandparent_indices[part->head()].push_back(
-              offset_grandparents + r);
+            offset_grandparents + r);
+        }
+      }
+    }
+
+    // Get all the grandsiblings, indices, etc.
+    vector<vector<DependencyPartGrandSibl*> > left_grandsiblings(sentence->size());
+    vector<vector<DependencyPartGrandSibl*> > right_grandsiblings(sentence->size());
+    vector<vector<double> > left_grandsibling_scores(sentence->size());
+    vector<vector<double> > right_grandsibling_scores(sentence->size());
+    vector<vector<int> > left_grandsibling_indices(sentence->size());
+    vector<vector<int> > right_grandsibling_indices(sentence->size());
+    if (use_grandparent_head_automata &&
+        use_grandsibling_parts) {
+      for (int r = 0; r < num_grandsiblings; ++r) {
+        DependencyPartGrandSibl *part = static_cast<DependencyPartGrandSibl*>(
+          (*dependency_parts)[offset_grandsiblings + r]);
+        if (part->head() > part->sibling()) {
+          // Left sibling.
+          left_grandsiblings[part->head()].push_back(part);
+          left_grandsibling_scores[part->head()].push_back(
+            scores[offset_grandsiblings + r]);
+          // Save the part index to get the posterior later.
+          left_grandsibling_indices[part->head()].push_back(
+            offset_grandsiblings + r);
+        } else {
+          // Right sibling.
+          right_grandsiblings[part->head()].push_back(part);
+          right_grandsibling_scores[part->head()].push_back(
+            scores[offset_grandsiblings + r]);
+          // Save the part index to get the posterior later.
+          right_grandsibling_indices[part->head()].push_back(
+            offset_grandsiblings + r);
         }
       }
     }
@@ -1077,21 +1711,21 @@ void DependencyDecoder::DecodeFactorGraph(Instance *instance, Parts *parts,
     vector<vector<int> > left_indices(sentence->size());
     vector<vector<int> > right_indices(sentence->size());
     for (int r = 0; r < num_next_siblings; ++r) {
-      DependencyPartNextSibl *sibling = 
-          static_cast<DependencyPartNextSibl*>(
-              (*parts)[offset_next_siblings + r]);
+      DependencyPartNextSibl *sibling =
+        static_cast<DependencyPartNextSibl*>(
+          (*parts)[offset_next_siblings + r]);
       if (sibling->head() > sibling->next_sibling()) {
         // Left sibling.
         left_siblings[sibling->head()].push_back(sibling);
         left_scores[sibling->head()].push_back(
-            scores[offset_next_siblings + r]);
+          scores[offset_next_siblings + r]);
         // Save the part index to get the posterior later.
         left_indices[sibling->head()].push_back(offset_next_siblings + r);
-      } else { 
-        // Right sibling. 
+      } else {
+        // Right sibling.
         right_siblings[sibling->head()].push_back(sibling);
         right_scores[sibling->head()].push_back(
-            scores[offset_next_siblings + r]);
+          scores[offset_next_siblings + r]);
         // Save the part index to get the posterior later.
         right_indices[sibling->head()].push_back(offset_next_siblings + r);
       }
@@ -1099,50 +1733,70 @@ void DependencyDecoder::DecodeFactorGraph(Instance *instance, Parts *parts,
 
     // Now, go through each head and create left and right automata.
     for (int h = 0; h < sentence->size(); ++h) {
-      // Get the incoming arcs, in case we are using grandparents.
+      // Get the incoming arcs, in case we are using grandparents
+      // or grandsiblings.
       vector<AD3::BinaryVariable*> local_variables_grandparents;
       vector<DependencyPartArc*> incoming_arcs;
       if (use_grandparent_head_automata &&
-          use_grandparent_parts &&
-          use_next_sibling_parts) {
+          ((use_grandparent_parts && use_next_sibling_parts) ||
+           (use_grandsibling_parts))) {
         for (int g = 0; g < sentence->size(); ++g) {
           int r = dependency_parts->FindArc(g, h);
           if (r < 0) continue;
           int index = r - offset_arcs;
           local_variables_grandparents.push_back(variables[index]);
-          DependencyPartArc *arc = 
+          DependencyPartArc *arc =
             static_cast<DependencyPartArc*>((*parts)[offset_arcs + r]);
           incoming_arcs.push_back(arc);
-        } 
+        }
       }
 
       // Build left head automaton.
       vector<AD3::BinaryVariable*> local_variables = local_variables_grandparents;
       vector<DependencyPartArc*> arcs;
-      for (int m = h-1; m >= 1; --m) {
+      for (int m = h - 1; m >= 1; --m) {
         int r = dependency_parts->FindArc(h, m);
         if (r < 0) continue;
         int index = r - offset_arcs;
         local_variables.push_back(variables[index]);
-        DependencyPartArc *arc = 
-            static_cast<DependencyPartArc*>((*parts)[offset_arcs + r]);
+        DependencyPartArc *arc =
+          static_cast<DependencyPartArc*>((*parts)[offset_arcs + r]);
         arcs.push_back(arc);
-      } 
+      }
       //if (arcs.size() == 0) continue; // Do not create an empty factor.
 
       if (use_grandparent_head_automata &&
-          use_grandparent_parts &&
-          use_next_sibling_parts && 
+          ((use_grandparent_parts && use_next_sibling_parts) ||
+           (use_grandsibling_parts)) &&
           incoming_arcs.size() > 0) {
         AD3::FactorGrandparentHeadAutomaton *factor =
           new AD3::FactorGrandparentHeadAutomaton;
-        factor->Initialize(incoming_arcs, arcs, 
-                           left_grandparents[h], 
-                           left_siblings[h]);
+        if (use_grandsibling_parts) {
+          factor->Initialize(incoming_arcs, arcs,
+                             left_grandparents[h],
+                             left_siblings[h],
+                             left_grandsiblings[h]);
+        } else {
+          factor->Initialize(incoming_arcs, arcs,
+                             left_grandparents[h],
+                             left_siblings[h]);
+        }
         vector<double> additional_log_potentials = left_grandparent_scores[h];
         additional_log_potentials.insert(additional_log_potentials.end(),
                                          left_scores[h].begin(),
                                          left_scores[h].end());
+        if (use_grandsibling_parts) {
+          additional_log_potentials.insert(additional_log_potentials.end(),
+                                           left_grandsibling_scores[h].begin(),
+                                           left_grandsibling_scores[h].end());
+          /*
+          cout << "Setting additional log-potentials in grandparent head automaton with grandsiblings: ";
+          for (int l = 0; l < additional_log_potentials.size(); ++l) {
+            cout << additional_log_potentials[l] << " ";
+          }
+          cout << endl;
+          */
+        }
         factor->SetAdditionalLogPotentials(additional_log_potentials);
         factor_graph->DeclareFactor(factor, local_variables, true);
         factor_part_indices_.push_back(-1);
@@ -1152,7 +1806,12 @@ void DependencyDecoder::DecodeFactorGraph(Instance *instance, Parts *parts,
         additional_part_indices.insert(additional_part_indices.end(),
                                        left_indices[h].begin(),
                                        left_indices[h].end());
-      } else {
+        if (use_grandsibling_parts) {
+          additional_part_indices.insert(additional_part_indices.end(),
+                                         left_grandsibling_indices[h].begin(),
+                                         left_grandsibling_indices[h].end());
+        }
+      } else if (use_next_sibling_parts) { // Added this "if", thanks to Ilan.
         AD3::FactorHeadAutomaton *factor = new AD3::FactorHeadAutomaton;
         factor->Initialize(arcs, left_siblings[h]);
         factor->SetAdditionalLogPotentials(left_scores[h]);
@@ -1162,34 +1821,54 @@ void DependencyDecoder::DecodeFactorGraph(Instance *instance, Parts *parts,
                                        left_indices[h].begin(),
                                        left_indices[h].end());
       }
+
       // Build right head automaton.
       local_variables.clear();
       local_variables = local_variables_grandparents;
       arcs.clear();
-      for (int m = h+1; m < sentence->size(); ++m) {
+      for (int m = h + 1; m < sentence->size(); ++m) {
         int r = dependency_parts->FindArc(h, m);
         if (r < 0) continue;
         int index = r - offset_arcs;
         local_variables.push_back(variables[index]);
-        DependencyPartArc *arc = 
-            static_cast<DependencyPartArc*>((*parts)[offset_arcs + r]);
+        DependencyPartArc *arc =
+          static_cast<DependencyPartArc*>((*parts)[offset_arcs + r]);
         arcs.push_back(arc);
-      } 
+      }
       //if (arcs.size() == 0) continue; // Do not create an empty factor.
 
       if (use_grandparent_head_automata &&
-          use_grandparent_parts &&
-          use_next_sibling_parts &&
+          ((use_grandparent_parts && use_next_sibling_parts) ||
+           (use_grandsibling_parts)) &&
           incoming_arcs.size() > 0) {
         AD3::FactorGrandparentHeadAutomaton *factor =
           new AD3::FactorGrandparentHeadAutomaton;
-        factor->Initialize(incoming_arcs, arcs, 
-                           right_grandparents[h], 
-                           right_siblings[h]);
+        if (use_grandsibling_parts) {
+          factor->Initialize(incoming_arcs, arcs,
+                             right_grandparents[h],
+                             right_siblings[h],
+                             right_grandsiblings[h]);
+        } else {
+          factor->Initialize(incoming_arcs, arcs,
+                             right_grandparents[h],
+                             right_siblings[h]);
+        }
         vector<double> additional_log_potentials = right_grandparent_scores[h];
         additional_log_potentials.insert(additional_log_potentials.end(),
                                          right_scores[h].begin(),
                                          right_scores[h].end());
+        if (use_grandsibling_parts) {
+          additional_log_potentials.insert(additional_log_potentials.end(),
+                                           right_grandsibling_scores[h].begin(),
+                                           right_grandsibling_scores[h].end());
+          /*
+          cout << "Setting additional log-potentials in grandparent head automaton with grandsiblings: ";
+          for (int l = 0; l < additional_log_potentials.size(); ++l) {
+            cout << additional_log_potentials[l] << " ";
+          }
+          cout << endl;
+          */
+        }
         factor->SetAdditionalLogPotentials(additional_log_potentials);
         factor_graph->DeclareFactor(factor, local_variables, true);
         factor_part_indices_.push_back(-1);
@@ -1199,7 +1878,12 @@ void DependencyDecoder::DecodeFactorGraph(Instance *instance, Parts *parts,
         additional_part_indices.insert(additional_part_indices.end(),
                                        right_indices[h].begin(),
                                        right_indices[h].end());
-      } else {
+        if (use_grandsibling_parts) {
+          additional_part_indices.insert(additional_part_indices.end(),
+                                         right_grandsibling_indices[h].begin(),
+                                         right_grandsibling_indices[h].end());
+        }
+      } else if (use_next_sibling_parts) { // Added this "if", thanks to Ilan.
         AD3::FactorHeadAutomaton *factor = new AD3::FactorHeadAutomaton;
         factor->Initialize(arcs, right_siblings[h]);
         factor->SetAdditionalLogPotentials(right_scores[h]);
@@ -1215,7 +1899,7 @@ void DependencyDecoder::DecodeFactorGraph(Instance *instance, Parts *parts,
     int offset_omega_variables = variables.size();
     for (int r = 0; r < num_arcs; ++r) {
       for (int s = 0; s < sentence->size(); ++s) {
-        // Create omega variable denoting that... 
+        // Create omega variable denoting that...
         AD3::BinaryVariable* variable = factor_graph->CreateBinaryVariable();
         variables.push_back(variable);
         part_indices_.push_back(-1);
@@ -1227,7 +1911,7 @@ void DependencyDecoder::DecodeFactorGraph(Instance *instance, Parts *parts,
     int offset_rho_variables = variables.size();
     for (int m = 0; m < sentence->size(); ++m) {
       for (int s = 0; s < sentence->size(); ++s) {
-        // Create rho variable denoting that... 
+        // Create rho variable denoting that...
         AD3::BinaryVariable* variable = factor_graph->CreateBinaryVariable();
         variables.push_back(variable);
         part_indices_.push_back(-1);
@@ -1254,8 +1938,8 @@ void DependencyDecoder::DecodeFactorGraph(Instance *instance, Parts *parts,
     // Create arrays of the variables that partipate in each factor.
     // Each array is in local_variables_rho[par][k].
     vector<vector<vector<AD3::BinaryVariable*> > >
-        local_variables_omega_normalizer(sentence->size(),
-            vector<vector<AD3::BinaryVariable*> >(sentence->size()));
+      local_variables_omega_normalizer(sentence->size(),
+                                       vector<vector<AD3::BinaryVariable*> >(sentence->size()));
 
     // Add the rho variables to the arrays.
     for (int h = 0; h < sentence->size(); ++h) {
@@ -1268,7 +1952,7 @@ void DependencyDecoder::DecodeFactorGraph(Instance *instance, Parts *parts,
     // Add the omega variables to the arrays.
     for (int r = 0; r < num_arcs; ++r) {
       DependencyPartArc *arc =
-          static_cast<DependencyPartArc*>((*dependency_parts)[r]);
+        static_cast<DependencyPartArc*>((*dependency_parts)[r]);
       int h = arc->head();
       int m = arc->modifier();
 
@@ -1310,14 +1994,14 @@ void DependencyDecoder::DecodeFactorGraph(Instance *instance, Parts *parts,
     // Create arrays of the variables that partipate in each factor.
     // Each array is in local_variables[r][k].
     vector<vector<vector<AD3::BinaryVariable*> > > local_variables_omega_propagate(
-        num_arcs, vector<vector<AD3::BinaryVariable*> >(sentence->size()));
+      num_arcs, vector<vector<AD3::BinaryVariable*> >(sentence->size()));
     vector<vector<vector<bool> > > negated_omega_propagate(
-        num_arcs, vector<vector<bool> >(sentence->size()));
+      num_arcs, vector<vector<bool> >(sentence->size()));
 
     // Do this first for par != ch1 (omega propagate factors):
     for (int r = 0; r < num_arcs; ++r) {
       DependencyPartArc *arc =
-          static_cast<DependencyPartArc*>((*dependency_parts)[r + offset_arcs]);
+        static_cast<DependencyPartArc*>((*dependency_parts)[r + offset_arcs]);
       int h = arc->head();
       int m = arc->modifier();
 
@@ -1369,9 +2053,9 @@ void DependencyDecoder::DecodeFactorGraph(Instance *instance, Parts *parts,
     // Create arrays of the variables that partipate in each factor.
     // Each array is in local_variables[par][k].
     vector<vector<vector<AD3::BinaryVariable*> > > local_variables_rho_propagate(
-        sentence->size(), vector<vector<AD3::BinaryVariable*> >(sentence->size()));
+      sentence->size(), vector<vector<AD3::BinaryVariable*> >(sentence->size()));
     vector<vector<vector<bool> > > negated_rho_propagate(
-        sentence->size(), vector<vector<bool> >(sentence->size()));
+      sentence->size(), vector<vector<bool> >(sentence->size()));
 
     // Now for par == ch1 (rho propagate factors):
     for (int h = 0; h < sentence->size(); ++h) {
@@ -1406,7 +2090,7 @@ void DependencyDecoder::DecodeFactorGraph(Instance *instance, Parts *parts,
     // Now add the prev sibl variables to these factors.
     for (int r = 0; r < num_next_siblings; ++r) {
       DependencyPartNextSibl *part = static_cast<DependencyPartNextSibl*>(
-          (*dependency_parts)[offset_next_siblings + r]);
+        (*dependency_parts)[offset_next_siblings + r]);
       int h = part->head();
       int m = part->modifier();
       int s = part->next_sibling();
@@ -1424,7 +2108,7 @@ void DependencyDecoder::DecodeFactorGraph(Instance *instance, Parts *parts,
         int r1 = dependency_parts->FindArc(h, m);
         int index = offset_next_sibling_variables + r;
         local_variables_omega_propagate[r1 - offset_arcs][s].push_back(
-            variables[index]);
+          variables[index]);
         // negated = false.
         negated_omega_propagate[r1 - offset_arcs][s].push_back(false);
       }
@@ -1460,11 +2144,11 @@ void DependencyDecoder::DecodeFactorGraph(Instance *instance, Parts *parts,
     // Create arrays of the variables that participate in each factor.
     // Each array is in local_variables[r].
     vector<vector<AD3::BinaryVariable*> > local_variables_consistency(
-        num_arcs);
+      num_arcs);
 
     for (int r = 0; r < num_next_siblings; ++r) {
       DependencyPartNextSibl *part = static_cast<DependencyPartNextSibl*>(
-          (*dependency_parts)[offset_next_siblings + r]);
+        (*dependency_parts)[offset_next_siblings + r]);
       int h = part->head();
       int s = part->next_sibling();
 
@@ -1494,7 +2178,7 @@ void DependencyDecoder::DecodeFactorGraph(Instance *instance, Parts *parts,
     // certain variables are equivalent.
     for (int r = 0; r < num_next_siblings; ++r) {
       DependencyPartNextSibl *part = static_cast<DependencyPartNextSibl*>(
-          (*dependency_parts)[offset_next_siblings + r]);
+        (*dependency_parts)[offset_next_siblings + r]);
       int h = part->head();
       int m = part->modifier();
       int s = part->next_sibling();
@@ -1516,7 +2200,7 @@ void DependencyDecoder::DecodeFactorGraph(Instance *instance, Parts *parts,
           local_variables[0] = variables[index];
 
           index = offset_rho_variables + h * sentence->size() +
-              (sentence->size() - 1);
+            (sentence->size() - 1);
           local_variables[1] = variables[index];
 
           // Create the factor.
@@ -1537,7 +2221,7 @@ void DependencyDecoder::DecodeFactorGraph(Instance *instance, Parts *parts,
             index = r1 - offset_arcs;
           } else {
             index = offset_omega_variables +
-                (r1 - offset_arcs) * sentence->size() + (sentence->size() - 1);
+              (r1 - offset_arcs) * sentence->size() + (sentence->size() - 1);
           }
           local_variables[1] = variables[index];
 
@@ -1578,7 +2262,7 @@ void DependencyDecoder::DecodeFactorGraph(Instance *instance, Parts *parts,
             index = r1 - offset_arcs;
           } else {
             index = offset_omega_variables +
-                (r1 - offset_arcs) * sentence->size() + 0;
+              (r1 - offset_arcs) * sentence->size() + 0;
           }
           local_variables[1] = variables[index];
 
@@ -1605,7 +2289,7 @@ void DependencyDecoder::DecodeFactorGraph(Instance *instance, Parts *parts,
     part_indices_.push_back(-1);
 
     DependencyPartNonproj *part = static_cast<DependencyPartNonproj*>(
-        (*dependency_parts)[offset_nonprojective + r]);
+      (*dependency_parts)[offset_nonprojective + r]);
     int evidence_value = -1;
     if (part->head() == 0) {
       // NONPROJARCEXTRA is necessarily 0.
@@ -1634,7 +2318,7 @@ void DependencyDecoder::DecodeFactorGraph(Instance *instance, Parts *parts,
   // Create NONPROJARCEXTRA factors.
   for (int r = 0; r < num_nonprojective; ++r) {
     DependencyPartNonproj *part = static_cast<DependencyPartNonproj*>(
-        (*dependency_parts)[offset_nonprojective + r]);
+      (*dependency_parts)[offset_nonprojective + r]);
 
     // No factor necessary in this case, as NONPROJARCEXTRA is necessarily 0.
     if (part->head() == 0) continue;
@@ -1672,7 +2356,7 @@ void DependencyDecoder::DecodeFactorGraph(Instance *instance, Parts *parts,
   // Create NONPROJARC factors.
   for (int r = 0; r < num_nonprojective; ++r) {
     DependencyPartNonproj *part = static_cast<DependencyPartNonproj*>(
-        (*dependency_parts)[offset_nonprojective + r]);
+      (*dependency_parts)[offset_nonprojective + r]);
 
     vector<AD3::BinaryVariable*> local_variables;
     int r1 = dependency_parts->FindArc(part->head(), part->modifier());
@@ -1701,7 +2385,7 @@ void DependencyDecoder::DecodeFactorGraph(Instance *instance, Parts *parts,
   if (num_path > 0) CHECK_GE(offset_path_variables, 0);
   for (int r = 0; r < num_path; ++r) {
     DependencyPartPath *part = static_cast<DependencyPartPath*>(
-        (*dependency_parts)[offset_path + r]);
+      (*dependency_parts)[offset_path + r]);
     int a = part->ancestor();
     int d = part->descendant();
     int index = offset_path_variables + a + d*sentence->size();
@@ -1721,12 +2405,12 @@ void DependencyDecoder::DecodeFactorGraph(Instance *instance, Parts *parts,
   //////////////////////////////////////////////////////////////////////
 
   if (use_head_bigram_sequence_factor && use_head_bigram_parts) {
-    // Populate local variables and compute the number of states for each 
+    // Populate local variables and compute the number of states for each
     // position in the sequence (i.e. each word).
     vector<AD3::BinaryVariable*> local_variables;
     vector<int> num_states(sentence->size() - 1, 0);
     vector<vector<int> > index_heads(sentence->size() - 1,
-      vector<int>(sentence->size(), -1));
+                                     vector<int>(sentence->size(), -1));
     for (int m = 1; m < sentence->size(); ++m) {
       for (int h = 0; h < sentence->size(); ++h) {
         int r = dependency_parts->FindArc(h, m);
@@ -1740,9 +2424,9 @@ void DependencyDecoder::DecodeFactorGraph(Instance *instance, Parts *parts,
     int index = 0;
     for (int i = 0; i < sentence->size(); ++i) {
       // If i == 0, the previous state is the start symbol.
-      int num_previous_states = (i > 0)? num_states[i - 1] : 1;
+      int num_previous_states = (i > 0) ? num_states[i - 1] : 1;
       // One state to account for the final symbol.
-      int num_current_states = (i < sentence->size() - 1)? num_states[i] : 1;
+      int num_current_states = (i < sentence->size() - 1) ? num_states[i] : 1;
       index_edges[i].resize(num_previous_states);
       for (int j = 0; j < num_previous_states; ++j) {
         index_edges[i][j].resize(num_current_states);
@@ -1760,9 +2444,9 @@ void DependencyDecoder::DecodeFactorGraph(Instance *instance, Parts *parts,
       int m = part->modifier();
       CHECK_GE(m, 1);
       CHECK_LT(m, sentence->size() + 1);
-      int previous_state = (m == 1)?
-          0 : index_heads[m - 2][part->previous_head()];
-      int current_state = (m == sentence->size())? 0 : index_heads[m - 1][part->head()];
+      int previous_state = (m == 1) ?
+        0 : index_heads[m - 2][part->previous_head()];
+      int current_state = (m == sentence->size()) ? 0 : index_heads[m - 1][part->head()];
       CHECK_GE(previous_state, 0);
       if (m > 1) CHECK_LT(previous_state, num_states[m - 2]);
       CHECK_GE(current_state, 0);
@@ -1831,7 +2515,7 @@ void DependencyDecoder::DecodeFactorGraph(Instance *instance, Parts *parts,
     gettimeofday(&start, NULL);
     int status = factor_graph->AddEvidence(&evidence, &recomputed_indices);
     gettimeofday(&end, NULL);
-    double elapsed_time = diff_ms(end,start);
+    double elapsed_time = diff_ms(end, start);
     VLOG(2) << "Graph simplification took " << elapsed_time << "ms.";
     CHECK_NE(status, AD3::STATUS_INFEASIBLE);
     if (status == AD3::STATUS_OPTIMAL_INTEGER) solved = true;
@@ -1839,11 +2523,17 @@ void DependencyDecoder::DecodeFactorGraph(Instance *instance, Parts *parts,
     VLOG(2) << "Number of variables: " << factor_graph->GetNumVariables();
   }
 
+  //#define PRINT_GRAPH
 #ifdef PRINT_GRAPH
+    //static int num_inst = 0;
   ofstream stream;
+  //stream.open("tmp.fg", ofstream::out | ofstream::app);
   stream.open("tmp.fg", ofstream::out);
   CHECK(stream.good());
   factor_graph->Print(stream);
+  stream << endl;
+  //++num_inst;
+  //if (num_inst == 14) CHECK(false);
   stream.flush();
   stream.clear();
   stream.close();
@@ -1855,9 +2545,11 @@ void DependencyDecoder::DecodeFactorGraph(Instance *instance, Parts *parts,
   double *value = &value_ref;
 
   factor_graph->SetMaxIterationsAD3(500);
+  //factor_graph->SetMaxIterationsAD3(200);
   factor_graph->SetEtaAD3(0.05);
   factor_graph->AdaptEtaAD3(true);
   factor_graph->SetResidualThresholdAD3(1e-3);
+  //factor_graph->SetResidualThresholdAD3(1e-6);
 
   // Run AD3.
   timeval start, end;
@@ -1866,9 +2558,9 @@ void DependencyDecoder::DecodeFactorGraph(Instance *instance, Parts *parts,
     factor_graph->SolveLPMAPWithAD3(&posteriors, &additional_posteriors, value);
   }
   gettimeofday(&end, NULL);
-  double elapsed_time = diff_ms(end,start);
+  double elapsed_time = diff_ms(end, start);
   VLOG(2) << "Elapsed time (AD3) = " << elapsed_time
-          << " (" << sentence->size() << ") ";
+    << " (" << sentence->size() << ") ";
 
   delete factor_graph;
 
@@ -1899,7 +2591,7 @@ void DependencyDecoder::DecodeFactorGraph(Instance *instance, Parts *parts,
     }
     *value += (*predicted_output)[r] * scores[r];
   }
-  
+
   VLOG(2) << "Solution value (AD3) = " << *value;
 }
 
@@ -1910,7 +2602,7 @@ void DependencyDecoder::DecodeFactorGraph(Instance *instance, Parts *parts,
 #include <ilcplex/ilocplex.h>
 ILOSTLBEGIN
 
-void DependencyDecoder::DecodeCPLEX(Instance *instance, Parts *parts, 
+void DependencyDecoder::DecodeCPLEX(Instance *instance, Parts *parts,
                                     const vector<double> &scores,
                                     bool single_root,
                                     bool relax,
@@ -1955,8 +2647,7 @@ void DependencyDecoder::DecodeCPLEX(Instance *instance, Parts *parts,
 
   int i, j, r;
 
-  try
-  {
+  try {
     timeval start, end;
     gettimeofday(&start, NULL);
 
@@ -1968,7 +2659,7 @@ void DependencyDecoder::DecodeCPLEX(Instance *instance, Parts *parts,
     // Variable definition
     ///////////////////////////////////////////////////////////////////
 
-    IloNumVar::Type varType = relax? ILOFLOAT : ILOBOOL;
+    IloNumVar::Type varType = relax ? ILOFLOAT : ILOBOOL;
     IloNumVarArray z(env, parts->size(), 0.0, 1.0, varType);
     IloNumVarArray flow;
 
@@ -1982,8 +2673,7 @@ void DependencyDecoder::DecodeCPLEX(Instance *instance, Parts *parts,
     ///////////////////////////////////////////////////////////////////
 
     IloExpr exprObj(env);
-    for (r = 0; r < parts->size(); r++)
-    {
+    for (r = 0; r < parts->size(); r++) {
       // Skip labeled arcs.
       if ((*parts)[r]->type() == DEPENDENCYPART_LABELEDARC) continue;
       // Add score to the objective.
@@ -2000,8 +2690,7 @@ void DependencyDecoder::DecodeCPLEX(Instance *instance, Parts *parts,
     // The root has no parent
     // sum_i (z_i0) = 0
     IloExpr expr(env);
-    for (i = 0; i < sentence->size(); i++)
-    {
+    for (i = 0; i < sentence->size(); i++) {
       r = dependency_parts->FindArc(i, 0);
       if (r < 0)
         continue;
@@ -2011,13 +2700,11 @@ void DependencyDecoder::DecodeCPLEX(Instance *instance, Parts *parts,
     expr.end();
 
     // afm 10/31/09
-    if (single_root)
-    {
+    if (single_root) {
       // The root has exactly one child
       // sum_i (z_0i) = 1
       IloExpr expr(env);
-      for (i = 0; i < sentence->size(); i++)
-      {
+      for (i = 0; i < sentence->size(); i++) {
         r = dependency_parts->FindArc(0, i);
         if (r < 0)
           continue;
@@ -2027,13 +2714,11 @@ void DependencyDecoder::DecodeCPLEX(Instance *instance, Parts *parts,
       expr.end();
     }
 
-    for (int j = 1; j < sentence->size(); j++)
-    {
+    for (int j = 1; j < sentence->size(); j++) {
       // One parent per word (other than the root)
       // sum_i (z_ij) = 1 for all j
       expr = IloExpr(env);
-      for (i = 0; i < sentence->size(); i++)
-      {
+      for (i = 0; i < sentence->size(); i++) {
         r = dependency_parts->FindArc(i, j);
         if (r < 0)
           continue;
@@ -2049,11 +2734,9 @@ void DependencyDecoder::DecodeCPLEX(Instance *instance, Parts *parts,
 
       // Root sends one unit of commodity to each node
       // sum_i (f_i0k) - sum_i (f_0ik) = -1, for each k which is not zero
-      for (k = 1; k < sentence->size(); k++)
-      {
+      for (k = 1; k < sentence->size(); k++) {
         expr = IloExpr(env);
-        for (int j = 0; j < sentence->size(); j++)
-        {
+        for (int j = 0; j < sentence->size(); j++) {
           r = dependency_parts->FindArc(0, j);
           if (r < 0)
             continue;
@@ -2070,21 +2753,17 @@ void DependencyDecoder::DecodeCPLEX(Instance *instance, Parts *parts,
 
       // Any node consume its own commodity and no other:
       // sum_i (f_ijk) - sum_i (f_jik) = 1(j==k), for each j,k which are not zero
-      for (k = 1; k < sentence->size(); k++)
-      {
-        for (j = 1; j < sentence->size(); j++)
-        {
+      for (k = 1; k < sentence->size(); k++) {
+        for (j = 1; j < sentence->size(); j++) {
           expr = IloExpr(env);
-          for (i = 0; i < sentence->size(); i++)
-          {
+          for (i = 0; i < sentence->size(); i++) {
             r = dependency_parts->FindArc(i, j);
             if (r < 0)
               continue;
             expr += flow[r*sentence->size() + k];
           }
 
-          for (i = 0; i < sentence->size(); i++)
-          {
+          for (i = 0; i < sentence->size(); i++) {
             r = dependency_parts->FindArc(j, i);
             if (r < 0)
               continue;
@@ -2100,21 +2779,17 @@ void DependencyDecoder::DecodeCPLEX(Instance *instance, Parts *parts,
 
       // Disabled arcs do not carry any flow
       // f_ijk <= z_ij for each i, j, and k
-      for (r = 0; r < num_arcs; r++)
-      {
-        for (k = 0; k < sentence->size(); k++)
-        {
+      for (r = 0; r < num_arcs; r++) {
+        for (k = 0; k < sentence->size(); k++) {
           mod.add(flow[r*sentence->size() + k] <= z[r]);
         }
       }
-    }
-    else // Single commodity flows
+    } else // Single commodity flows
     {
       // Root sends flow n
       // sum_j (f_0j) = n
       expr = IloExpr(env);
-      for (j = 0; j < sentence->size(); j++)
-      {
+      for (j = 0; j < sentence->size(); j++) {
         r = dependency_parts->FindArc(0, j);
         if (r < 0)
           continue;
@@ -2125,19 +2800,16 @@ void DependencyDecoder::DecodeCPLEX(Instance *instance, Parts *parts,
 
       // Incoming minus outgoing flow is 1 (except for the root)
       // sum_i (f_ij) - sum_i (f_ji) = 1 for each j
-      for (j = 1; j < sentence->size(); j++)
-      {
+      for (j = 1; j < sentence->size(); j++) {
         expr = IloExpr(env);
-        for (i = 0; i < sentence->size(); i++)
-        {
+        for (i = 0; i < sentence->size(); i++) {
           r = dependency_parts->FindArc(i, j);
           if (r < 0)
             continue;
           expr += flow[r];
         }
 
-        for (i = 0; i < sentence->size(); i++)
-        {
+        for (i = 0; i < sentence->size(); i++) {
           r = dependency_parts->FindArc(j, i);
           if (r < 0)
             continue;
@@ -2149,14 +2821,12 @@ void DependencyDecoder::DecodeCPLEX(Instance *instance, Parts *parts,
 
       // Flow on disabled arcs is zero
       // f_ij <= n*z_ij for each i and j
-      for (i = 0; i < sentence->size(); i++)
-      {
-        for (j = 0; j < sentence->size(); j++)
-        {
+      for (i = 0; i < sentence->size(); i++) {
+        for (j = 0; j < sentence->size(); j++) {
           r = dependency_parts->FindArc(i, j);
           if (r < 0)
             continue;
-          mod.add(flow[r] <= (sentence->size()-1) * z[r]);
+          mod.add(flow[r] <= (sentence->size() - 1) * z[r]);
         }
       }
     }
@@ -2165,16 +2835,14 @@ void DependencyDecoder::DecodeCPLEX(Instance *instance, Parts *parts,
     // Add global constraints (if any)
     ///////////////////////////////////////////////////////////////
 
-    if (use_arbitrary_sibling_parts)
-    {
+    if (use_arbitrary_sibling_parts) {
       // z_ijk <= z_ij for each i,j,k
       // z_ijk <= z_ik for each i,j,k
       // z_ijk >= z_ij + z_ik - 1 for each i,j,k
 
-      for (int r = 0; r < num_siblings; ++r)
-      {
+      for (int r = 0; r < num_siblings; ++r) {
         DependencyPartSibl *part = static_cast<DependencyPartSibl*>(
-            (*dependency_parts)[offset_siblings + r]);
+          (*dependency_parts)[offset_siblings + r]);
         int h = part->head();
         int m = part->modifier();
         int s = part->sibling();
@@ -2190,21 +2858,19 @@ void DependencyDecoder::DecodeCPLEX(Instance *instance, Parts *parts,
       }
     }
 
-    if (use_next_sibling_parts)
-    {
+    if (use_next_sibling_parts) {
       IloNumVarArray omega(env, num_arcs * sentence->size(),
-          0.0, 1.0, ILOFLOAT);
+                           0.0, 1.0, ILOFLOAT);
       IloNumVarArray rho(env, sentence->size() * sentence->size(),
-          0.0, 1.0, ILOFLOAT); // This stores omega(par,par,k)
+                         0.0, 1.0, ILOFLOAT); // This stores omega(par,par,k)
 
-      //////////////////////////////////////////////////
-      // omega_{par,ch,ch} = z_{par,ch}
-      //////////////////////////////////////////////////
+                     //////////////////////////////////////////////////
+                     // omega_{par,ch,ch} = z_{par,ch}
+                     //////////////////////////////////////////////////
 
-      for (int r = 0; r < num_arcs; r++)
-      {
+      for (int r = 0; r < num_arcs; r++) {
         DependencyPartArc *arc = static_cast<DependencyPartArc*>(
-            (*dependency_parts)[offset_arcs + r]);
+          (*dependency_parts)[offset_arcs + r]);
         int par = arc->head();
         int ch = arc->modifier();
 
@@ -2222,42 +2888,33 @@ void DependencyDecoder::DecodeCPLEX(Instance *instance, Parts *parts,
       for (int ind = 0; ind < vExpr.size(); ind++)
         vExpr[ind] = IloExpr(env);
 
-      for (int par = 0; par < sentence->size(); par++)
-      {
-        for (int k = 0; k < sentence->size(); k++)
-        {
+      for (int par = 0; par < sentence->size(); par++) {
+        for (int k = 0; k < sentence->size(); k++) {
           vExpr[par*sentence->size() + k] += rho[par*sentence->size() + k];
         }
       }
 
-      for (int r = 0; r < num_arcs; r++)
-      {
+      for (int r = 0; r < num_arcs; r++) {
         DependencyPartArc *arc = static_cast<DependencyPartArc*>(
-            (*dependency_parts)[offset_arcs + r]);
+          (*dependency_parts)[offset_arcs + r]);
         int par = arc->head();
         int ch = arc->modifier();
 
         if (par == ch) // This should never happen
           continue;
 
-        if (par < ch)
-        {
-          for (int k = ch; k < sentence->size(); k++)
-          {
+        if (par < ch) {
+          for (int k = ch; k < sentence->size(); k++) {
             vExpr[par*sentence->size() + k] += omega[r*sentence->size() + k];
           }
-        }
-        else
-        {
-          for (int k = ch; k >= 0; k--)
-          {
+        } else {
+          for (int k = ch; k >= 0; k--) {
             vExpr[par*sentence->size() + k] += omega[r*sentence->size() + k];
           }
         }
       }
 
-      for (int ind = 0; ind < vExpr.size(); ind++)
-      {
+      for (int ind = 0; ind < vExpr.size(); ind++) {
         mod.add(vExpr[ind] == 1.0);
         vExpr[ind].end();
       }
@@ -2272,27 +2929,21 @@ void DependencyDecoder::DecodeCPLEX(Instance *instance, Parts *parts,
       for (int ind = 0; ind < vExpr.size(); ind++)
         vExpr[ind] = IloExpr(env);
 
-      for (int r = 0; r < num_arcs; r++)
-      {
+      for (int r = 0; r < num_arcs; r++) {
         DependencyPartArc *arc = static_cast<DependencyPartArc*>(
-            (*dependency_parts)[offset_arcs + r]);
+          (*dependency_parts)[offset_arcs + r]);
         int par = arc->head();
         int ch = arc->modifier();
 
         if (par == ch) // This should never happen
           continue;
 
-        if (par < ch)
-        {
-          for (int k = ch + 1; k < sentence->size(); k++)
-          {
+        if (par < ch) {
+          for (int k = ch + 1; k < sentence->size(); k++) {
             vExpr[r*sentence->size() + k] += omega[r*sentence->size() + k] - omega[r*sentence->size() + k - 1];
           }
-        }
-        else
-        {
-          for (int k = ch - 1; k >= 0; k--)
-          {
+        } else {
+          for (int k = ch - 1; k >= 0; k--) {
             vExpr[r*sentence->size() + k] += omega[r*sentence->size() + k] - omega[r*sentence->size() + k + 1];
           }
         }
@@ -2303,28 +2954,23 @@ void DependencyDecoder::DecodeCPLEX(Instance *instance, Parts *parts,
       for (int ind = 0; ind < vExpr2.size(); ind++)
         vExpr2[ind] = IloExpr(env);
 
-      for (int par = 0; par < sentence->size(); par++)
-      {
-        for (int k = 0; k < sentence->size(); k++)
-        {
+      for (int par = 0; par < sentence->size(); par++) {
+        for (int k = 0; k < sentence->size(); k++) {
           if (par == k)
             continue;
 
-          if (par < k)
+          if (par < k) {
+            vExpr2[par*sentence->size() + k] += rho[par*sentence->size() + k] - rho[par*sentence->size() + k - 1];
+          } else // if (par > k)
           {
-              vExpr2[par*sentence->size() + k] += rho[par*sentence->size() + k] - rho[par*sentence->size() + k - 1];
-          }
-          else // if (par > k)
-          {
-              vExpr2[par*sentence->size() + k] += rho[par*sentence->size() + k] - rho[par*sentence->size() + k + 1];
+            vExpr2[par*sentence->size() + k] += rho[par*sentence->size() + k] - rho[par*sentence->size() + k + 1];
           }
         }
       }
 
-      for (int r = 0; r < num_next_siblings; ++r)
-      {
+      for (int r = 0; r < num_next_siblings; ++r) {
         DependencyPartNextSibl *part = static_cast<DependencyPartNextSibl*>(
-            (*dependency_parts)[offset_next_siblings + r]);
+          (*dependency_parts)[offset_next_siblings + r]);
         int h = part->head();
         int m = part->modifier();
         int s = part->next_sibling();
@@ -2334,8 +2980,7 @@ void DependencyDecoder::DecodeCPLEX(Instance *instance, Parts *parts,
 
         if (h == m) // First child
           vExpr2[h*sentence->size() + s] += z[offset_next_siblings + r];
-        else
-        {
+        else {
           int r1 = dependency_parts->FindArc(h, m);
           int r2 = dependency_parts->FindArc(h, s);
 
@@ -2343,18 +2988,15 @@ void DependencyDecoder::DecodeCPLEX(Instance *instance, Parts *parts,
         }
       }
 
-      for (int ind = 0; ind < vExpr.size(); ind++)
-      {
+      for (int ind = 0; ind < vExpr.size(); ind++) {
         mod.add(vExpr[ind] == 0.0);
         vExpr[ind].end();
       }
 
-      for (int ind = 0; ind < vExpr2.size(); ind++)
-      {
+      for (int ind = 0; ind < vExpr2.size(); ind++) {
         mod.add(vExpr2[ind] == 0.0);
         vExpr2[ind].end();
       }
-
 
       //////////////////////////////////////////////////
       // sum_{ch1} z_{par,ch1,ch2} = z_{par,ch2}
@@ -2365,10 +3007,9 @@ void DependencyDecoder::DecodeCPLEX(Instance *instance, Parts *parts,
       for (int ind = 0; ind < vExpr.size(); ind++)
         vExpr[ind] = IloExpr(env);
 
-      for (int r = 0; r < num_next_siblings; ++r)
-      {
+      for (int r = 0; r < num_next_siblings; ++r) {
         DependencyPartNextSibl *part = static_cast<DependencyPartNextSibl*>(
-            (*dependency_parts)[offset_next_siblings + r]);
+          (*dependency_parts)[offset_next_siblings + r]);
         int h = part->head();
         int m = part->modifier();
         int s = part->next_sibling();
@@ -2382,17 +3023,15 @@ void DependencyDecoder::DecodeCPLEX(Instance *instance, Parts *parts,
         vExpr[r2] += z[offset_next_siblings + r];
       }
 
-      for (int ind = 0; ind < vExpr.size(); ind++)
-      {
+      for (int ind = 0; ind < vExpr.size(); ind++) {
         mod.add(vExpr[ind] == z[ind]);
         vExpr[ind].end();
       }
 
       // Take care of the leftmost/rightmost children:
-      for (int r = 0; r < num_next_siblings; ++r)
-      {
+      for (int r = 0; r < num_next_siblings; ++r) {
         DependencyPartNextSibl *part = static_cast<DependencyPartNextSibl*>(
-            (*dependency_parts)[offset_next_siblings + r]);
+          (*dependency_parts)[offset_next_siblings + r]);
         int h = part->head();
         int m = part->modifier();
         int s = part->next_sibling();
@@ -2407,39 +3046,32 @@ void DependencyDecoder::DecodeCPLEX(Instance *instance, Parts *parts,
         {
           if (h == m) // No child on right side
           {
-            mod.add(z[offset_next_siblings + r] == rho[h*sentence->size() +  (sentence->size()-1)]);
-          }
-          else
-          {
+            mod.add(z[offset_next_siblings + r] == rho[h*sentence->size() + (sentence->size() - 1)]);
+          } else {
             int r1 = dependency_parts->FindArc(h, m);
-            mod.add(z[offset_next_siblings + r] == omega[r1*sentence->size() +  (sentence->size()-1)]);
+            mod.add(z[offset_next_siblings + r] == omega[r1*sentence->size() + (sentence->size() - 1)]);
           }
-        }
-        else if (s == -1) // Leftmost child
+        } else if (s == -1) // Leftmost child
         {
           if (h == m) // No child on left side
           {
-            mod.add(z[offset_next_siblings + r] == rho[h*sentence->size() +  0]);
-          }
-          else
-          {
+            mod.add(z[offset_next_siblings + r] == rho[h*sentence->size() + 0]);
+          } else {
             int r1 = dependency_parts->FindArc(h, m);
-            mod.add(z[offset_next_siblings + r] == omega[r1*sentence->size() +  0]);
+            mod.add(z[offset_next_siblings + r] == omega[r1*sentence->size() + 0]);
           }
         }
       }
     }
 
-    if (use_grandparent_parts)
-    {
+    if (use_grandparent_parts) {
       // z_ijk <= z_ij for each i,j,k
       // z_ijk <= z_ik for each i,j,k
       // z_ijk >= z_ij + z_ik - 1 for each i,j,k
 
-      for (int r = 0; r < num_grandparents; ++r)
-      {
+      for (int r = 0; r < num_grandparents; ++r) {
         DependencyPartGrandpar *part = static_cast<DependencyPartGrandpar*>(
-            (*dependency_parts)[offset_grandparents + r]);
+          (*dependency_parts)[offset_grandparents + r]);
         int g = part->grandparent();
         int h = part->head();
         int m = part->modifier();
@@ -2455,44 +3087,38 @@ void DependencyDecoder::DecodeCPLEX(Instance *instance, Parts *parts,
       }
     }
 
-    if (use_nonprojective_arc_parts)
-    {
+    if (use_nonprojective_arc_parts) {
       int j, k;
 
       // Define auxiliary variables (indicates a path between i and j)
       IloNumVarArray psi(env, sentence->size()*sentence->size(),
-          0.0, 1.0, ILOFLOAT);
+                         0.0, 1.0, ILOFLOAT);
       vector<IloExpr> vExpr(sentence->size()*sentence->size());
       for (int ind = 0; ind < vExpr.size(); ind++)
         vExpr[ind] = IloExpr(env);
 
-      for (int r = 0; r < num_arcs; r++)
-      {
+      for (int r = 0; r < num_arcs; r++) {
         DependencyPartArc *arc = static_cast<DependencyPartArc*>(
-            (*dependency_parts)[offset_arcs + r]);
+          (*dependency_parts)[offset_arcs + r]);
         j = arc->modifier();
         if (j == 0)
           continue;
-        for (k = 0; k < sentence->size(); k++)
-        {
+        for (k = 0; k < sentence->size(); k++) {
           vExpr[j + sentence->size()*k] += flow[r*sentence->size() + k];
         }
       }
-      for (k = 0; k < sentence->size(); k++)
-      {
+      for (k = 0; k < sentence->size(); k++) {
         // psi_0k = 1, for each k = 1,...,n
         // psi_jk = sum(i) f_ijk, for each j,k = 1,...,n
         mod.add(psi[0 + sentence->size()*k] == 1);
-        for (j = 1; j < sentence->size(); j++)
-        {
+        for (j = 1; j < sentence->size(); j++) {
           //mod.add(psi[j + sentence->size()*k] == vExpr[j + sentence->size()*k]);
           mod.add(psi[j + sentence->size()*k] <= vExpr[j + sentence->size()*k]);
           mod.add(psi[j + sentence->size()*k] >= vExpr[j + sentence->size()*k]);
         }
       }
 
-      for (int ind = 0; ind < vExpr.size(); ind++)
-      {
+      for (int ind = 0; ind < vExpr.size(); ind++) {
         vExpr[ind].end();
       }
       vExpr.clear();
@@ -2500,10 +3126,9 @@ void DependencyDecoder::DecodeCPLEX(Instance *instance, Parts *parts,
       // znp_ij <= z_ij for each i,j
       // znp_ij >= z_ij - psi_ik for each i,j, and k in (i,j)
       // znp_ij <= -sum(k in (i,j)) psi_ik + |j-i| - 1, for each i,j
-      for (int r = 0; r < num_nonprojective; ++r)
-      {
+      for (int r = 0; r < num_nonprojective; ++r) {
         DependencyPartNonproj *part = static_cast<DependencyPartNonproj*>(
-            (*dependency_parts)[offset_nonprojective + r]);
+          (*dependency_parts)[offset_nonprojective + r]);
         int par = part->head();
         int ch = part->modifier();
         int r1 = dependency_parts->FindArc(par, ch); // Typically r1 == r - r0
@@ -2512,27 +3137,21 @@ void DependencyDecoder::DecodeCPLEX(Instance *instance, Parts *parts,
         {
           mod.add(z[offset_nonprojective + r] <= 0.0);
           continue;
-        }
-        else
+        } else
           mod.add(z[offset_nonprojective + r] - z[r1] <= 0.0);
 
         int i0, j0;
-        if (par < ch)
-        {
+        if (par < ch) {
           i0 = par;
           j0 = ch;
-        }
-        else if (par > ch)
-        {
+        } else if (par > ch) {
           i0 = ch;
           j0 = par;
-        }
-        else
+        } else
           continue; // If ch==par, znp_ij = z_ij = 0 necessarily
 
         expr = IloExpr(env);
-        for (int k = i0+1; k < j0; k++)
-        {
+        for (int k = i0 + 1; k < j0; k++) {
           mod.add(z[offset_nonprojective + r] - z[r1] + psi[par + sentence->size()*k] >= 0.0);
           expr += psi[par + sentence->size()*k];
         }
@@ -2542,51 +3161,44 @@ void DependencyDecoder::DecodeCPLEX(Instance *instance, Parts *parts,
       }
     }
 
-    if (use_path_parts)
-    {
+    if (use_path_parts) {
       int j, k;
 
       // Define auxiliary variables (indicates a path between i and j)
       IloNumVarArray psi(env, sentence->size()*sentence->size(),
-          0.0, 1.0, ILOFLOAT);
+                         0.0, 1.0, ILOFLOAT);
       vector<IloExpr> vExpr(sentence->size()*sentence->size());
       for (int ind = 0; ind < vExpr.size(); ind++)
         vExpr[ind] = IloExpr(env);
 
-      for (int r = 0; r < num_arcs; r++)
-      {
+      for (int r = 0; r < num_arcs; r++) {
         DependencyPartArc *arc = static_cast<DependencyPartArc*>(
-            (*dependency_parts)[offset_arcs + r]);
+          (*dependency_parts)[offset_arcs + r]);
         j = arc->modifier();
         if (j == 0)
           continue;
-        for (k = 0; k < sentence->size(); k++)
-        {
+        for (k = 0; k < sentence->size(); k++) {
           vExpr[j + sentence->size()*k] += flow[r*sentence->size() + k];
         }
       }
-      for (k = 0; k < sentence->size(); k++)
-      {
+      for (k = 0; k < sentence->size(); k++) {
         // psi_0k = 1, for each k = 1,...,n
         // psi_jk = sum(i) f_ijk, for each j,k = 1,...,n
         mod.add(psi[0 + sentence->size()*k] == 1);
-        for (j = 1; j < sentence->size(); j++)
-        {
+        for (j = 1; j < sentence->size(); j++) {
           mod.add(psi[j + sentence->size()*k] == vExpr[j + sentence->size()*k]);
         }
       }
 
-      for (int ind = 0; ind < vExpr.size(); ind++)
-      {
+      for (int ind = 0; ind < vExpr.size(); ind++) {
         vExpr[ind].end();
       }
       vExpr.clear();
 
       // zpath_ij = psi_ij for each i,j
-      for (int r = 0; r < num_path; ++r)
-      {
+      for (int r = 0; r < num_path; ++r) {
         DependencyPartPath *part = static_cast<DependencyPartPath*>(
-            (*dependency_parts)[offset_path + r]);
+          (*dependency_parts)[offset_path + r]);
         int ancest = part->ancestor();
         int descend = part->descendant();
 
@@ -2594,22 +3206,20 @@ void DependencyDecoder::DecodeCPLEX(Instance *instance, Parts *parts,
       }
     }
 
-    if (use_head_bigram_parts)
-    {
+    if (use_head_bigram_parts) {
       // z_{prevpar,par,ch} <= z_{par,ch} for each prevpar,par,ch
       // z_{prevpar,par,ch} <= z_{prevpar,ch-1} for each prevpar,par,ch
       // z_{prevpar,par,ch} >= z_{par,ch} + z_{prevpar,ch-1} - 1 for each prevpar,par,ch
-      for (int r = 0; r < num_bigrams; ++r)
-      {
+      for (int r = 0; r < num_bigrams; ++r) {
         DependencyPartHeadBigram *part = static_cast<DependencyPartHeadBigram*>(
-            (*dependency_parts)[offset_bigrams + r]);
+          (*dependency_parts)[offset_bigrams + r]);
         int prevpar = part->previous_head();
         int par = part->head();
         int ch = part->modifier();
 
-        assert(ch-1 >= 0);
+        assert(ch - 1 >= 0);
 
-        int r1 = dependency_parts->FindArc(prevpar, ch-1);
+        int r1 = dependency_parts->FindArc(prevpar, ch - 1);
         int r2 = dependency_parts->FindArc(par, ch);
 
         assert(r1 >= 0 && r2 >= 0);
@@ -2623,27 +3233,22 @@ void DependencyDecoder::DecodeCPLEX(Instance *instance, Parts *parts,
     ///////////////////////////////////////////////////////////////////
     // Solve
     ///////////////////////////////////////////////////////////////////
-    double tilim = pipe_->GetDependencyOptions()->train()? 60.0 : 300.0; // Time limit: 60 seconds training, 300 sec. testing
-    cplex.setParam (IloCplex::TiLim, tilim); // Time limit: 60 seconds
+    double tilim = pipe_->GetDependencyOptions()->train() ? 60.0 : 300.0; // Time limit: 60 seconds training, 300 sec. testing
+    cplex.setParam(IloCplex::TiLim, tilim); // Time limit: 60 seconds
 
     bool hasSolution = false;
-    if (cplex.solve())
-    {
+    if (cplex.solve()) {
       hasSolution = true;
 
       cplex.out() << "Solution status = " << cplex.getStatus() << endl;
       cplex.out() << "Solution value = " << cplex.getObjValue() << endl;
 
       gettimeofday(&end, NULL);
-      double elapsed_time = diff_ms(end,start);
+      double elapsed_time = diff_ms(end, start);
       cout << "Elapsed time (CPLEX) = " << elapsed_time << " (" << sentence->size() << ") " << endl;
-
-    }
-    else
-    {
+    } else {
       cout << "Could not solve the LP!" << endl;
-      if (cplex.getCplexStatus() == IloCplex::AbortTimeLim)
-      {
+      if (cplex.getCplexStatus() == IloCplex::AbortTimeLim) {
         cout << "Time out!" << endl;
 
         cplex.out() << "Solution status = " << cplex.getStatus() << endl;
@@ -2652,28 +3257,22 @@ void DependencyDecoder::DecodeCPLEX(Instance *instance, Parts *parts,
           cplex.out() << "Solution best value = " << cplex.getBestObjValue() << endl;
       }
 
-      if (pipe_->GetDependencyOptions()->test())
-      {
+      if (pipe_->GetDependencyOptions()->test()) {
         if (cplex.isPrimalFeasible())
           hasSolution = true;
-        else
-        {
+        else {
           cout << "Trying to solve the LP in primal form..." << endl;
 
           cplex.setParam(IloCplex::RootAlg, IloCplex::Primal);
-          if (cplex.solve())
-          {
+          if (cplex.solve()) {
             hasSolution = true;
 
             cplex.out() << "Solution status = " << cplex.getStatus() << endl;
             cplex.out() << "Solution value = " << cplex.getObjValue() << endl;
-          }
-          else
-          {
+          } else {
             cout << "Could not solve the LP in primal form!" << endl;
 
-            if (cplex.isPrimalFeasible())
-            {
+            if (cplex.isPrimalFeasible()) {
               hasSolution = true;
 
               cout << "However, a feasible solution was found." << endl;
@@ -2684,9 +3283,8 @@ void DependencyDecoder::DecodeCPLEX(Instance *instance, Parts *parts,
       }
     }
 
-    if (hasSolution)
-    {
-      IloNumArray zOpt(env,parts->size());
+    if (hasSolution) {
+      IloNumArray zOpt(env, parts->size());
 
       cplex.getValues(z, zOpt);
 
@@ -2697,21 +3295,17 @@ void DependencyDecoder::DecodeCPLEX(Instance *instance, Parts *parts,
       }
 
       ///////
-      for (int j = 0; j < sentence->size(); j++)
-      {
+      for (int j = 0; j < sentence->size(); j++) {
         double sum = 0.0;
-        for (int i = 0; i < sentence->size(); i++)
-        {
-          r = dependency_parts->FindArc(i,j);
+        for (int i = 0; i < sentence->size(); i++) {
+          r = dependency_parts->FindArc(i, j);
           if (r < 0)
             continue;
           sum += (*predicted_output)[r];
 
-          if (relax)
-          {
+          if (relax) {
             double val = (*predicted_output)[r];
-            if (val*(1-val) > 0.001)
-            {
+            if (val*(1 - val) > 0.001) {
               cout << "Fractional value!" << endl;
             }
           }
@@ -2725,18 +3319,13 @@ void DependencyDecoder::DecodeCPLEX(Instance *instance, Parts *parts,
     }
 
     env.end();
-  }
-  catch (IloException& ex)
-  {
+  } catch (IloException& ex) {
     cout << "Error: " << ex << endl;
     cerr << "Error: " << ex << endl;
-  }
-  catch (...)
-  {
+  } catch (...) {
     cout << "Unspecified error" << endl;
     cerr << "Unspecified error" << endl;
   }
 }
 
 #endif
-

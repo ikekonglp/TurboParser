@@ -1,20 +1,20 @@
-// Copyright (c) 2012 Andre Martins
+// Copyright (c) 2012-2015 Andre Martins
 // All Rights Reserved.
 //
-// This file is part of TurboParser 2.0.
+// This file is part of TurboParser 2.3.
 //
-// TurboParser 2.0 is free software: you can redistribute it and/or modify
+// TurboParser 2.3 is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Lesser General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
 //
-// TurboParser 2.0 is distributed in the hope that it will be useful,
+// TurboParser 2.3 is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 // GNU Lesser General Public License for more details.
 //
 // You should have received a copy of the GNU Lesser General Public License
-// along with TurboParser 2.0.  If not, see <http://www.gnu.org/licenses/>.
+// along with TurboParser 2.3.  If not, see <http://www.gnu.org/licenses/>.
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -40,7 +40,6 @@ int main(int argc, char** argv) {
   // Parse command line flags.
   google::ParseCommandLineFlags(&argc, &argv, true);
 
-
   if (FLAGS_train) {
     LOG(INFO) << "Training parser..." << endl;
     TrainParser();
@@ -49,6 +48,9 @@ int main(int argc, char** argv) {
     TestParser();
   }
 
+  // Destroy allocated memory regarding line flags.
+  google::ShutDownCommandLineFlags();
+  google::ShutdownGoogleLogging();
   return 0;
 }
 
@@ -71,7 +73,7 @@ void TrainParser() {
       LOG(INFO) << "Training the pruner...";
       DependencyOptions *pruner_options = new DependencyOptions;
       *pruner_options = *options;
-      // Transform things such as pruner_train_algorithm 
+      // Transform things such as pruner_train_algorithm
       // in train_algorithm.
       pruner_options->CopyPrunerFlags();
       pruner_options->Initialize();
@@ -80,7 +82,7 @@ void TrainParser() {
 
       pruner_pipe->Train();
       pipe->SetPrunerParameters(pruner_pipe->GetParameters());
-      // This is necessary so that the pruner parameters are not 
+      // This is necessary so that the pruner parameters are not
       // destroyed when deleting the pruner pipe.
       pruner_pipe->SetParameters(NULL);
 
@@ -97,10 +99,10 @@ void TrainParser() {
   delete options;
 
   gettimeofday(&end, NULL);
-  time = diff_ms(end,start);
+  time = diff_ms(end, start);
 
-  LOG(INFO) << "Training took " << static_cast<double>(time)/1000.0 
-            << " sec." << endl; 
+  LOG(INFO) << "Training took " << static_cast<double>(time) / 1000.0
+    << " sec." << endl;
 }
 
 void TestParser() {
@@ -120,8 +122,8 @@ void TestParser() {
   delete options;
 
   gettimeofday(&end, NULL);
-  time = diff_ms(end,start);
+  time = diff_ms(end, start);
 
-  LOG(INFO) << "Testing took " << static_cast<double>(time)/1000.0
-            << " sec." << endl;
+  LOG(INFO) << "Testing took " << static_cast<double>(time) / 1000.0
+    << " sec." << endl;
 }

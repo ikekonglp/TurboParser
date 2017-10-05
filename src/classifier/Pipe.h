@@ -1,20 +1,20 @@
-// Copyright (c) 2012 Andre Martins
+// Copyright (c) 2012-2015 Andre Martins
 // All Rights Reserved.
 //
-// This file is part of TurboParser 2.0.
+// This file is part of TurboParser 2.3.
 //
-// TurboParser 2.0 is free software: you can redistribute it and/or modify
+// TurboParser 2.3 is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Lesser General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
 //
-// TurboParser 2.0 is distributed in the hope that it will be useful,
+// TurboParser 2.3 is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 // GNU Lesser General Public License for more details.
 //
 // You should have received a copy of the GNU Lesser General Public License
-// along with TurboParser 2.0.  If not, see <http://www.gnu.org/licenses/>.
+// along with TurboParser 2.3.  If not, see <http://www.gnu.org/licenses/>.
 
 #ifndef PIPE_H_
 #define PIPE_H_
@@ -35,7 +35,7 @@
 // Task-specific classifiers should derive from this class and implement the
 // pure virtual methods.
 class Pipe {
- public:
+public:
   // Constructor/destructor.
   Pipe() {};
   Pipe(Options* options);
@@ -61,7 +61,10 @@ class Pipe {
   // Run a previously trained classifier on new data.
   void Run();
 
- protected:
+  // Run a previously trained classifier on a single instance.
+  void ClassifyInstance(Instance *instance);
+
+protected:
   // Create basic objects.
   virtual void CreateDictionary() = 0;
   virtual void CreateReader() = 0;
@@ -71,8 +74,8 @@ class Pipe {
   virtual Features *CreateFeatures() = 0;
 
   // Save/load model.
-  void SaveModelByName(const string &model_name);
-  void LoadModelByName(const string &model_name);
+  void SaveModelByName(const std::string &model_name);
+  void LoadModelByName(const std::string &model_name);
   virtual void SaveModel(FILE* fs);
   virtual void LoadModel(FILE* fs);
 
@@ -83,6 +86,7 @@ class Pipe {
     }
     instances_.clear();
   }
+
   void AddInstance(Instance *instance) {
     Instance *formatted_instance = GetFormattedInstance(instance);
     instances_.push_back(formatted_instance);
@@ -121,7 +125,8 @@ class Pipe {
   // Note: this function is task-specific and needs to be implemented by the
   // deriving class.
   virtual void MakeSelectedFeatures(Instance *instance, Parts *parts,
-      const vector<bool> &selected_parts, Features *features) = 0;
+                                    const vector<bool> &selected_parts,
+                                    Features *features) = 0;
 
   // Given an instance, parts, and features, compute the scores. This will
   // look at the current parameters. Each part will receive a score, so the
@@ -156,10 +161,10 @@ class Pipe {
   // prediction.
   // In CRFs, it is the vector of posterior marginals for the parts.
   virtual void MakeFeatureDifference(Parts *parts,
-                                   Features *features,
-                                   const vector<double> &gold_output,
-                                   const vector<double> &predicted_output,
-                                   FeatureVector *difference);
+                                     Features *features,
+                                     const vector<double> &gold_output,
+                                     const vector<double> &predicted_output,
+                                     FeatureVector *difference);
 
   // Given an instance, a vector of parts, and features for those parts,
   // remove all the features which are not supported, i.e., that were not
@@ -185,6 +190,16 @@ class Pipe {
   // with supported features (flag --only_supported_features).
   virtual void TouchParameters(Parts *parts, Features *features,
                                const vector<bool> &selected_parts);
+
+  // This is a no-op by default. But it's convenient to have it here to build
+  // latent-variable structured classifiers (e.g. for coreference resolution).
+  virtual void TransformGold(Instance *instance,
+                             Parts *parts,
+                             const std::vector<double> &scores,
+                             std::vector<double> *gold_output,
+                             double *loss_inner) {
+    *loss_inner = 0.0;
+  }
 
   // Given a vector of parts of a desired output, builds the output information
   // in the instance that corresponds to that output.
@@ -217,7 +232,9 @@ class Pipe {
   // for the predicted and gold parts. Override this function for
   // task-specific evaluation.
   virtual void BeginEvaluation() { num_mistakes_ = 0; num_total_parts_ = 0; }
-  virtual void EvaluateInstance(Instance *instance, Parts *parts,
+  virtual void EvaluateInstance(Instance *instance,
+                                Instance *output_instance,
+                                Parts *parts,
                                 const vector<double> &gold_outputs,
                                 const vector<double> &predicted_outputs) {
     for (int r = 0; r < parts->size(); ++r) {
@@ -225,26 +242,26 @@ class Pipe {
         ++num_mistakes_;
       }
       ++num_total_parts_;
-    }      
+    }
   }
   virtual void EndEvaluation() {
-    LOG(INFO) << "Accuracy (parts): " << 
+    LOG(INFO) << "Accuracy (parts): " <<
       static_cast<double>(num_total_parts_ - num_mistakes_) /
-        static_cast<double>(num_total_parts_);
+      static_cast<double>(num_total_parts_);
   }
-  
- protected:
+
+protected:
   Options *options_; // Classifier options.
   Dictionary *dictionary_; // Dictionary for the classifier.
   Reader *reader_; // Reader for reading instances from a file.
-  Writer* writer_; // Writer for writing instance to a file.
-  Decoder* decoder_; // Decoder for this classification task.
+  Writer *writer_; // Writer for writing instance to a file.
+  Decoder *decoder_; // Decoder for this classification task.
   Parameters *parameters_; // Parameter vector.
-  vector<Instance*> instances_; // Set of training instances.
+  vector<Instance*> instances_; // Set of instances.
 
   // Number of mistakes and number of total parts at test time (used for
   // evaluation purposes).
-  int num_mistakes_;  
+  int num_mistakes_;
   int num_total_parts_;
 };
 

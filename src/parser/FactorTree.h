@@ -1,20 +1,20 @@
-// Copyright (c) 2012 Andre Martins
+// Copyright (c) 2012-2015 Andre Martins
 // All Rights Reserved.
 //
-// This file is part of TurboParser 2.0.
+// This file is part of TurboParser 2.3.
 //
-// TurboParser 2.0 is free software: you can redistribute it and/or modify
+// TurboParser 2.3 is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Lesser General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
 //
-// TurboParser 2.0 is distributed in the hope that it will be useful,
+// TurboParser 2.3 is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 // GNU Lesser General Public License for more details.
 //
 // You should have received a copy of the GNU Lesser General Public License
-// along with TurboParser 2.0.  If not, see <http://www.gnu.org/licenses/>.
+// along with TurboParser 2.3.  If not, see <http://www.gnu.org/licenses/>.
 
 #ifndef FACTOR_TREE_H
 #define FACTOR_TREE_H
@@ -23,9 +23,8 @@
 #include "ad3/GenericFactor.h"
 
 namespace AD3 {
-
 class FactorTree : public GenericFactor {
- public:
+public:
   FactorTree() {}
   virtual ~FactorTree() {
     if (own_parts_) {
@@ -33,6 +32,7 @@ class FactorTree : public GenericFactor {
         delete arcs_[r];
       }
     }
+    ClearActiveSet();
   }
 
   // Print as a string.
@@ -55,8 +55,13 @@ class FactorTree : public GenericFactor {
                 Configuration &configuration,
                 double *value) {
     vector<int>* heads = static_cast<vector<int>*>(configuration);
-    decoder_->RunChuLiuEdmonds(length_, arcs_, variable_log_potentials,
-                               heads, value);
+    if (projective_) {
+      decoder_->RunEisner(length_, arcs_, variable_log_potentials,
+                          heads, value);
+    } else {
+      decoder_->RunChuLiuEdmonds(length_, arcs_, variable_log_potentials,
+                                 heads, value);
+    }
   }
 
   // Compute the score of a given assignment.
@@ -75,7 +80,7 @@ class FactorTree : public GenericFactor {
     }
   }
 
-  // Given a configuration with a probability (weight), 
+  // Given a configuration with a probability (weight),
   // increment the vectors of variable and additional posteriors.
   // Note: additional_log_potentials is empty and is ignored.
   void UpdateMarginalsFromConfiguration(
@@ -114,7 +119,7 @@ class FactorTree : public GenericFactor {
     for (int i = 1; i < heads1->size(); ++i) {
       if ((*heads1)[i] != (*heads2)[i]) return false;
     }
-    return true;    
+    return true;
   }
 
   // Delete configuration.
@@ -127,14 +132,16 @@ class FactorTree : public GenericFactor {
   // Create configuration.
   Configuration CreateConfiguration() {
     vector<int>* heads = new vector<int>(length_);
-    return static_cast<Configuration>(heads); 
+    return static_cast<Configuration>(heads);
   }
 
- public:
-  void Initialize(int length, const vector<DependencyPartArc*> &arcs,
+public:
+  void Initialize(bool projective, int length,
+                  const vector<DependencyPartArc*> &arcs,
                   DependencyDecoder *decoder,
                   bool own_parts = false) {
     own_parts_ = own_parts;
+    projective_ = projective;
     length_ = length;
     arcs_ = arcs;
     decoder_ = decoder;
@@ -146,15 +153,14 @@ class FactorTree : public GenericFactor {
     }
   }
 
- private:
+private:
   bool own_parts_;
+  bool projective_; // If true, assume projective trees.
   int length_; // Sentence length (including root symbol).
   vector<vector<int> > index_arcs_;
   vector<DependencyPartArc*> arcs_;
   DependencyDecoder* decoder_;
 };
-
 } // namespace AD3
 
 #endif // FACTOR_TREE_H
-

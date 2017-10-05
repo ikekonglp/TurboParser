@@ -1,26 +1,35 @@
-// Copyright (c) 2012 Andre Martins
+// Copyright (c) 2012-2015 Andre Martins
 // All Rights Reserved.
 //
-// This file is part of TurboParser 2.0.
+// This file is part of TurboParser 2.3.
 //
-// TurboParser 2.0 is free software: you can redistribute it and/or modify
+// TurboParser 2.3 is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Lesser General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
 //
-// TurboParser 2.0 is distributed in the hope that it will be useful,
+// TurboParser 2.3 is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 // GNU Lesser General Public License for more details.
 //
 // You should have received a copy of the GNU Lesser General Public License
-// along with TurboParser 2.0.  If not, see <http://www.gnu.org/licenses/>.
+// along with TurboParser 2.3.  If not, see <http://www.gnu.org/licenses/>.
 
 #ifndef FEATURES_H_
 #define FEATURES_H_
 
 #include "Part.h"
 #include "Instance.h"
+#ifdef _WIN32
+#include <stdint.h>
+#endif
+#include <unordered_map>
+#include <functional>
+
+#ifndef USE_WEIGHT_CACHING
+#define USE_WEIGHT_CACHING 0 //1
+#endif
 
 // A vector of binary features. Each feature is represented as a 64-bit key.
 typedef vector<uint64_t> BinaryFeatures;
@@ -30,11 +39,11 @@ class Pipe;
 // Abstract class for the feature handler. Task-specific handlers should derive
 // from this class and implement the pure virtual methods.
 class Features {
- public:
+public:
   Features() {};
   virtual ~Features() {};
 
- public:
+public:
   // Set a pointer to the pipe that owns this feature handler.
   void SetPipe(Pipe *pipe) { pipe_ = pipe; };
 
@@ -43,7 +52,7 @@ class Features {
   // Get the binary features corresponding to the r-th part (mutable).
   virtual BinaryFeatures *GetMutablePartFeatures(int r) const = 0;
 
- protected:
+protected:
   Pipe *pipe_; // The pipe that owns this feature handler.
 };
 

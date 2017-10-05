@@ -1,6 +1,6 @@
 ================================================================================
 TurboParser -- Dependency Parser with Linear Programming Relaxations.
-Version 2.0
+Version 2.3.x
 
 Written and maintained by André Martins (afm [at] cs.cmu.edu).
 ================================================================================
@@ -9,7 +9,7 @@ This file is part of TurboParser, a project started at the computational
 linguistics research group, ARK (http://www.ark.cs.cmu.edu/), in Carnegie Mellon 
 University.
 
-This package contains a C++ implementation of the dependency parsers described 
+This package contains a C++ implementation of the dependency parsers described
 in:
 
 [1] André F. T. Martins, Noah A. Smith, and Eric P. Xing. 2009.
@@ -20,15 +20,28 @@ In Annual Meeting of the Association for Computational Linguistics (ACL).
 Polyhedral Outer Approximations with Application to Natural Language Parsing.
 In International Conference on Machine Learning (ICML).
 
-[3] André F. T. Martins, Noah A. Smith, Eric P. Xing, Pedro M. Q. Aguiar, and 
+[3] André F. T. Martins, Noah A. Smith, Eric P. Xing, Pedro M. Q. Aguiar, and
 Mário A. T. Figueiredo. 2010.
 TurboParsers: Dependency Parsing by Approximate Variational Inference.
 In Empirical Methods in Natural Language Processing (EMNLP).
 
-[4] André F. T. Martins, Noah A. Smith, Mário A. T. Figueiredo, 
+[4] André F. T. Martins, Noah A. Smith, Mário A. T. Figueiredo,
 Pedro M. Q. Aguiar. 2011.
 Dual Decomposition With Many Overlapping Components.
 In Empirical Methods in Natural Language Processing (EMNLP).
+
+[5] André F. T. Martins, Miguel B. Almeida, Noah A. Smith. 2013.
+Turning on the Turbo: Fast Third-Order Non-Projective Turbo Parsers.
+In Annual Meeting of the Association for Computational Linguistics (ACL).
+
+[6] André F. T. Martins and Mariana S. C. Almeida. 2014.
+Priberam: A Turbo Semantic Parser with Second Order Features.
+In International Workshop on Semantic Evaluation (SemEval), task 8:
+Broad-Coverage Semantic Dependency Parsing.
+
+[7] Daniel F.-González and André F. T. Martins. 2015.
+Parsing As Reduction.
+In Annual Meeting of the Association for Computational Linguistics (ACL).
 
 This package allows:
 - learning the parser from a treebank,
@@ -38,17 +51,31 @@ This package allows:
 This software has the following external dependencies: AD3, a library for
 approximate MAP inference (http://www.ark.cs.cmu.edu/AD3/); Eigen, a template
 library for linear algebra; glog, a library for logging; gflags, a library
-for commandline flag processing. All these libraries are free software and are 
+for commandline flag processing. All these libraries are free software and are
 provided as tarballs in this package.
 
-This package has been tested in several Linux platforms.
+This package has been tested in several Linux platforms. It has also
+successfully compiled in Mac OS X and MS Windows (using MSVC).
+
+Since version 2.2.x, the following is also provided:
+- a Python wrapper for the tagger and parser (requires Cython 0.19);
+- a semantic role labeler (TurboSemanticParser) implementing ref. [6] above.
+
+Since version 2.3.x, we also provide:
+- a named entity recognizer (TurboEntityRecognizer).
+- a coreference resolver (TurboCoreferenceResolver).
+- a constituent parser based on dependency-to-constituent reduction,
+implementing ref. [7] below.
+- a dependency labeler, TurboDependencyLabeler, that can optionally be applied
+after the dependency parser.
+- compatibility with MS Windows (using MSVC) and with C++0x.
 
 If there are any problems running the parser please email: afm [at] cs.cmu.edu
 I will only respond to questions not answered in this README.
 
-We would like to thank Ryan McDonald and Jason Baldridge by MSTParser 
-(available at http://sourceforge.net/projects/mstparser), in which the code in 
-this package was partly based. 
+We would like to thank Ryan McDonald and Jason Baldridge by MSTParser
+(available at http://sourceforge.net/projects/mstparser), in which the code in
+this package was partly based.
 
 ================================================================================
 
@@ -84,9 +111,13 @@ Contents
    d. Running the trained tagger/parser on new data
    e. Additional options
 
-4. Memory/Disk space and performance issues
+4. Installing the Python wrapper
 
-5. Reproducing results in the ICML, ACL, and EMNLP papers
+5. Memory/Disk space and performance issues
+
+6. Reproducing results in the ICML, ACL, and EMNLP papers
+
+7. Reproducing results in the SemEval 2014 paper (TurboSemanticParser)
 
 
 ================================================================================
@@ -95,8 +126,8 @@ Contents
 
 To compile the code, first unzip/tar the downloaded file:
 
-> tar -zxvf TurboParser-2.0.tar.gz
-> cd TurboParser-2.0
+> tar -zxvf TurboParser-2.2.0.tar.gz
+> cd TurboParser-2.2.0
 
 Next, run the following command
 
@@ -154,7 +185,7 @@ data, and evaluate the output against the gold standard:
 --logtostderr
 
 The results from running the parser are in the file 
-data/samples/sample_test.conll.predicted and the trained model in 
+data/sample/sample_test.conll.predicted and the trained model in 
 models/sample_parser.model.
 
 
@@ -251,7 +282,7 @@ Here is a sample of two sentences from the Dutch dataset:
 12  terrassen         terras            N     N     soort|mv|neut                    11  cnj     _  _
 13  .                 .                 Punc  Punc  punt                             12  punct   _  _
 
-Please go to http://nextens.uvt.nl/~conll/#dataformat for more information 
+Please go to http://ilk.uvt.nl/conll/#dataformat for more information
 about the meaning of each column field. 
 The parser should still learn/run if some of the fields (like the FEATS field) 
 are filled with "_".
@@ -297,9 +328,10 @@ In general, the --model_type flag is a string formed by the one or several of
 the following pieces: af enables arc-factored parts (required), +cs enables
 consecutive sibling parts, +gp enables grandparent parts, +as enables
 arbitrary sibling parts, +np enables non-projectivity parts, +dp enables
-directed path parts, +hb enables head bigram parts. The following alias are
-predefined: "basic" is af, "standard" is af+cs+gp, "full" is
-af+cs+gp+as+hb. Default is "standard".
+directed path parts, +hb enables head bigram parts, +gs enables grand-sibling
+(third-order) parts, +ts enables tri-sibling (third-order) parts. The following
+alias are predefined: "basic" is af, "standard" is af+cs+gp, "full" is
+af+cs+gp+as+hb+gs+ts. Default is "standard".
 
 In any case, after training ends, a model file "models/danish_parser.model" will
 be created. To run the parser on new data (e.g. a file 
@@ -326,7 +358,7 @@ Just run:
   -s data/danish/danish_test.conll.predicted | tail -5
 
 This script also allows performing significance tests (see 
-http://nextens.uvt.nl/~conll/software.html for details).
+http://ilk.uvt.nl/conll/software.html for details).
 
 ================================================================================
 3c. Training the tagger
@@ -378,7 +410,7 @@ test files in the format above. Run:
 This will train a sequential trigram model for POS tagging. The default training 
 algorithm is (cost-augmented) MIRA, but there are other options (see section 
 3e below). For the sections 02-21 of the Penn Treebank, training will take only
-about 15-20 minutes.
+about 5 minutes.
 
 Note the flag --form_cutoff=1, which defines a cut-off on word frequency. 
 Without setting this flag, performance will be substantially lower.
@@ -399,8 +431,8 @@ the predictions made by the tagger, and will output some accuracy and speed
 metrics. 
 
 When training on 02-21 of the Penn Treebank, TurboTagger achieves an accuracy
-of 96.9% in section 22 and 97.3% in section 23. Speed is about 40,000 tokens
-per second, on a desktop PC with Intel Core i7 CPU and 8GB RAM.
+of 96.9% in section 22 and 97.2% in section 23. Speed is about 40,000 tokens
+per second, on a desktop PC with Intel Core i7 CPU @3.4 GHz and 8GB RAM.
 
 NOTE: A script is included in this package for creating CoNLL files with the 
 tags predicted by TurboTagger (rather than gold tags). This requires the 
@@ -497,8 +529,17 @@ and
 
 > TurboTagger --help
 
+
 ================================================================================
-4. Memory/Disk space and performance issues
+4. Installing the Python wrapper
+================================================================================
+
+A Python wrapper for the tagger and parser is provided in the folder "python".
+For installation instructions, see the README file in that folder.
+
+
+================================================================================
+5. Memory/Disk space and performance issues
 ================================================================================
 
 This parser is memory and disk space intensive.
@@ -523,19 +564,26 @@ settings takes about 7-8 hours). This time is shortened to 1 hour using an
 arc-factored model.
 
 Here is a quick comparison of parser models and rough speeds. This is when 
-trained on 02-21 of the Penn Treebank; accuracies are unlabeled  attachment 
+trained on 02-21 of the Penn Treebank; accuracies are unlabeled attachment 
 scores (without punctuation) in section 23. Speeds were measured in a desktop PC 
 with Intel Core i7 CPU 3.4 GHz and 8GB RAM.
 
-- basic (arc-factored): 4,300 tokens per second, accuracy 90.72%.
-- standard (af+cs+gp): 1,200 tokens per second, accuracy 92.48%.
-- full (af+cs+gp+hb+as): 900 tokens per second, accuracy 92.62%.
+- basic (arc-factored): 4,058 tokens per second, accuracy 91.05%.
+- standard (af+cs+gp): 1,414 tokens per second, accuracy 92.81%.
+- full (af+cs+gp+hb+as+gs+ts): 735 tokens per second, accuracy 93.07%.
 
 ================================================================================
-5. Reproducing results in the ICML, ACL, and EMNLP papers
+6. Reproducing results in the ICML, ACL, and EMNLP papers
 ================================================================================
 
+TurboParser 2.2.0 should reproduce the results in reference [5] above.
 This software won't allow to reproduce exactly the results in the references 
 [1,2,3,4] above, because a complete refactoring was made, and a different set 
 of features is used.
 
+================================================================================
+7. Reproducing results in the SemEval 2014 paper (TurboSemanticParser)
+================================================================================
+
+Instructions for reproducing the results in [6] are in the README file in 
+folder semeval2014_data.

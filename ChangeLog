@@ -20,3 +20,29 @@
   Fixed a bug that where causing some of the predicted parses not to be
   valid trees. Now there is a final projection step that ensures that all
   output parses are trees.
+
+2013-05-23 TurboParser 2.1.0 afm@cs.cmu.edu
+  New release with some additional features:
+  * Introduced third-order parts (as described in our ACL 2013 short paper).
+  * Windows-compatible (tested under MSVC; thanks to Afonso Mendes).
+  * TurboTagger is now faster.
+
+2014-06-26 TurboParser 2.2.0 afm@cs.cmu.edu
+  New release with some additional features:
+  * Implemented a Python wrapper using Cython.
+  * Added a semantic parser, TurboSemanticParser (as described in our SemEval
+  2014 paper)
+  * Added a tokenizer for Portuguese.
+
+2015-11-06 TurboParser 2.3.0 afm@cs.cmu.edu
+  New release with some additional features:
+  * Added a named entity recognizer, TurboEntityRecognizer, based on the
+  Illinois Entity Tagger.
+  * Added a coreference resolver, TurboCoreferenceResolver, based on the
+  Berkeley Coreference Resolution System.
+  * Implemented a constituent parser by reducing that problem to dependency
+  parser followed by unary recovery (as described in our ACL 2015 paper).
+  * As a by-product, implemented an external dependency labeler,
+  TurboDependencyLabeler, to be applied optionally after the dependency parser.
+  * Compatible with C++0x.
+  * Windows-compatible (tested under MSVC; thanks to David Nogueira).

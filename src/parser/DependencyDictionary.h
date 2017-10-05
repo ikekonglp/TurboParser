@@ -1,32 +1,33 @@
-// Copyright (c) 2012 Andre Martins
+// Copyright (c) 2012-2015 Andre Martins
 // All Rights Reserved.
 //
-// This file is part of TurboParser 2.0.
+// This file is part of TurboParser 2.3.
 //
-// TurboParser 2.0 is free software: you can redistribute it and/or modify
+// TurboParser 2.3 is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Lesser General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
 //
-// TurboParser 2.0 is distributed in the hope that it will be useful,
+// TurboParser 2.3 is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 // GNU Lesser General Public License for more details.
 //
 // You should have received a copy of the GNU Lesser General Public License
-// along with TurboParser 2.0.  If not, see <http://www.gnu.org/licenses/>.
+// along with TurboParser 2.3.  If not, see <http://www.gnu.org/licenses/>.
 
 #ifndef DEPENDENCYDICTIONARY_H_
 #define DEPENDENCYDICTIONARY_H_
 
 #include "Dictionary.h"
 #include "TokenDictionary.h"
+#include "DependencyReader.h"
 #include "SerializationUtils.h"
 
 class Pipe;
 
 class DependencyDictionary : public Dictionary {
- public:
+public:
   DependencyDictionary() { token_dictionary_ = NULL; }
   DependencyDictionary(Pipe* pipe) : pipe_(pipe) {}
   virtual ~DependencyDictionary() {
@@ -35,7 +36,7 @@ class DependencyDictionary : public Dictionary {
 
   void CreateLabelDictionary(DependencyReader *reader);
 
-  void Clear() { 
+  void Clear() {
     // Don't clear token_dictionary, since this class does not own it.
     label_alphabet_.clear();
     existing_labels_.clear();
@@ -123,7 +124,7 @@ class DependencyDictionary : public Dictionary {
 
   TokenDictionary *GetTokenDictionary() const { return token_dictionary_; }
   void SetTokenDictionary(TokenDictionary *token_dictionary) {
-    token_dictionary_ = token_dictionary; 
+    token_dictionary_ = token_dictionary;
     //CHECK(token_dictionary_ == NULL);
   }
 
@@ -141,8 +142,7 @@ class DependencyDictionary : public Dictionary {
 
   const Alphabet &GetLabelAlphabet() const { return label_alphabet_; };
 
-
- protected:
+protected:
   Pipe *pipe_;
   TokenDictionary *token_dictionary_;
   Alphabet label_alphabet_;
@@ -151,5 +151,10 @@ class DependencyDictionary : public Dictionary {
   vector<vector<int> > maximum_right_distances_;
 };
 
+class DependencyTokenDictionary : public TokenDictionary {
+public:
+  DependencyTokenDictionary() {};
+  virtual ~DependencyTokenDictionary() {};
+  void Initialize(DependencyReader *reader);
+};
 #endif /* DEPENDENCYDICTIONARY_H_ */
-

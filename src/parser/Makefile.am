@@ -1,19 +1,22 @@
 UTIL = ../util
 CLASSIFIER = ../classifier
-TAGGER = ../tagger
+SEQUENCE = ../sequence
+ENTITY_RECOGNIZER = ../entity_recognizer
 
 TurboParserprgdir = ../..
 TurboParserprg_PROGRAMS = TurboParser
 TurboParser_SOURCES = DependencyDecoder.cpp DependencyFeatures.h \
 DependencyInstanceNumeric.h DependencyPipe.cpp DependencyWriter.h \
 DependencyDecoder.h DependencyFeatureTemplates.h DependencyOptions.cpp \
-DependencyPipe.h FactorGrandparentHeadAutomaton.h TurboParser.cpp \
+DependencyPipe.h FactorGrandparentHeadAutomaton.h FactorTrigramHeadAutomaton.h \
+TurboParser.cpp \
 DependencyDictionary.cpp DependencyInstance.cpp DependencyOptions.h \
 DependencyReader.cpp FactorHeadAutomaton.h DependencyDictionary.h \
 DependencyInstance.h DependencyPart.cpp DependencyReader.h FactorSequence.h \
 DependencyFeatures.cpp DependencyInstanceNumeric.cpp DependencyPart.h \
 DependencyWriter.cpp FactorTree.h \
-$(TAGGER)/TokenDictionary.cpp $(TAGGER)/TokenDictionary.h \
+$(SEQUENCE)/TokenDictionary.cpp $(SEQUENCE)/TokenDictionary.h \
+$(SEQUENCE)/SequenceInstance.cpp $(SEQUENCE)/SequenceInstance.h \
 $(CLASSIFIER)/Alphabet.cpp $(CLASSIFIER)/Dictionary.cpp \
 $(CLASSIFIER)/Features.h $(CLASSIFIER)/Options.h $(CLASSIFIER)/Part.h \
 $(CLASSIFIER)/Reader.cpp $(CLASSIFIER)/SparseParameterVector.h \
@@ -28,6 +31,6 @@ $(UTIL)/StringUtils.h $(UTIL)/TimeUtils.h $(UTIL)/AlgUtils.h \
 $(UTIL)/SerializationUtils.cpp $(UTIL)/StringUtils.cpp $(UTIL)/TimeUtils.cpp \
 $(UTIL)/Utils.h
 
-AM_CPPFLAGS = -I$(UTIL) -I$(CLASSIFIER) -I$(TAGGER) $(CPPFLAGS)
+AM_CPPFLAGS = -I$(UTIL) -I$(CLASSIFIER) -I$(SEQUENCE) -I$(ENTITY_RECOGNIZER) $(CPPFLAGS)
 LDADD = $(LFLAGS)
 

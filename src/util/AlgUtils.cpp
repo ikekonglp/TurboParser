@@ -1,20 +1,20 @@
-// Copyright (c) 2012 Andre Martins
+// Copyright (c) 2012-2015 Andre Martins
 // All Rights Reserved.
 //
-// This file is part of TurboParser 2.0.
+// This file is part of TurboParser 2.3.
 //
-// TurboParser 2.0 is free software: you can redistribute it and/or modify
+// TurboParser 2.3 is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Lesser General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
 //
-// TurboParser 2.0 is distributed in the hope that it will be useful,
+// TurboParser 2.3 is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 // GNU Lesser General Public License for more details.
 //
 // You should have received a copy of the GNU Lesser General Public License
-// along with TurboParser 2.0.  If not, see <http://www.gnu.org/licenses/>.
+// along with TurboParser 2.3.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "AlgUtils.h"
 #include "math.h"
@@ -82,7 +82,7 @@ int project_onto_simplex(double* x, int d, double r) {
   sort(y.begin(), y.end());
 
   for (j = 0; j < d; j++) {
-    tau = (s - r) / ((double) (d - j));
+    tau = (s - r) / ((double)(d - j));
     if (y[j] > tau) break;
     s -= y[j];
   }
@@ -95,7 +95,7 @@ int project_onto_simplex(double* x, int d, double r) {
     }
   }
 
- return 0;
+  return 0;
 }
 
 // Cached version of the algorithm in project_onto_simplex(...).
@@ -103,8 +103,8 @@ int project_onto_simplex(double* x, int d, double r) {
 // so that we have a hint for the ordering.
 int project_onto_simplex_cached(double* x,
                                 int d,
-                                double r, 
-                                vector<pair<double,int> >& y) {
+                                double r,
+                                vector<pair<double, int> >& y) {
   int j;
   double s = 0.0;
   double tau;
@@ -123,13 +123,13 @@ int project_onto_simplex_cached(double* x,
       s += x[j];
       y[j].first = x[y[j].second];
     }
-    // If reordering is cached, use a sorting algorithm 
+    // If reordering is cached, use a sorting algorithm
     // which is fast when the vector is almost sorted.
     InsertionSort(&y[0], d);
   }
 
   for (j = 0; j < d; j++) {
-    tau = (s - r) / ((double) (d - j));
+    tau = (s - r) / ((double)(d - j));
     if (y[j].first > tau) break;
     s -= y[j].first;
   }
@@ -160,7 +160,7 @@ int project_onto_simplex_cached(double* x,
 // y is a cached version of projection computed in the previous call, sorted,
 // so that we have a hint for the ordering.
 int project_onto_cone_cached(double* x, int d,
-                             vector<pair<double,int> >& y) {
+                             vector<pair<double, int> >& y) {
   int j;
   double s = 0.0;
   double yav = 0.0;
@@ -173,19 +173,19 @@ int project_onto_cone_cached(double* x, int d,
     }
   } else {
     for (j = 0; j < d; j++) {
-      if (y[j].second == d-1 && j != d-1) {
-        y[j].second = y[d-1].second;
-        y[d-1].second = d-1;
+      if (y[j].second == d - 1 && j != d - 1) {
+        y[j].second = y[d - 1].second;
+        y[d - 1].second = d - 1;
       }
       y[j].first = x[y[j].second];
     }
   }
-  InsertionSort(&y[0], d-1);
+  InsertionSort(&y[0], d - 1);
 
-  for (j = d-1; j >= 0; j--) {
+  for (j = d - 1; j >= 0; j--) {
     s += y[j].first;
-    yav = s / ((double) (d - j));
-    if (j == 0 || yav >= y[j-1].first) break;
+    yav = s / ((double)(d - j));
+    if (j == 0 || yav >= y[j - 1].first) break;
   }
 
   for (; j < d; j++) {
@@ -194,4 +194,3 @@ int project_onto_cone_cached(double* x, int d,
 
   return 0;
 }
-

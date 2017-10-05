@@ -1,20 +1,20 @@
-// Copyright (c) 2012 Andre Martins
+// Copyright (c) 2012-2015 Andre Martins
 // All Rights Reserved.
 //
-// This file is part of TurboParser 2.0.
+// This file is part of TurboParser 2.3.
 //
-// TurboParser 2.0 is free software: you can redistribute it and/or modify
+// TurboParser 2.3 is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Lesser General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
 //
-// TurboParser 2.0 is distributed in the hope that it will be useful,
+// TurboParser 2.3 is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 // GNU Lesser General Public License for more details.
 //
 // You should have received a copy of the GNU Lesser General Public License
-// along with TurboParser 2.0.  If not, see <http://www.gnu.org/licenses/>.
+// along with TurboParser 2.3.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "DependencyPipe.h"
 #include "DependencyFeatures.h"
@@ -30,13 +30,17 @@
 DEFINE_bool(use_upper_dependencies, false,
             "True for using upper dependencies.");
 DEFINE_int32(dependency_token_context, 1,
-            "Size of the context in token features.");
+             "Size of the context in token features.");
+//DEFINE_bool(use_nonprojective_grandparent, true,
+//            "True for using nonprojective grandparent features.");
 DEFINE_bool(use_nonprojective_grandparent, false,
             "True for using nonprojective grandparent features.");
 DEFINE_bool(use_pair_features_arbitrary_siblings, false, /*false,*/
             "True for using pair features for arbitrary sibling parts.");
 DEFINE_bool(use_pair_features_second_order, true, /*false,*/
             "True for using pair features for second order parts.");
+DEFINE_bool(use_pair_features_grandsibling_conjunctions, true, /*false,*/
+            "True for using pair features for grandsiblings that are conjunctions.");
 // TODO: try setting this true.
 DEFINE_bool(use_trilexical_features, false,
             "True for using trilexical features.");
@@ -48,17 +52,17 @@ DEFINE_bool(use_trilexical_features, false,
 // feature information.
 // The features are very similar to the ones used in Koo et al. EGSTRA.
 void DependencyFeatures::AddArcFeaturesLight(
-                          DependencyInstanceNumeric* sentence,
-                          int r,
-                          int head,
-                          int modifier) {
+  DependencyInstanceNumeric* sentence,
+  int r,
+  int head,
+  int modifier) {
   CHECK(!input_features_[r]);
   BinaryFeatures *features = new BinaryFeatures;
   input_features_[r] = features;
 
 #if USE_MST_FEATURES
   AddWordPairFeaturesMST(sentence, DependencyFeatureTemplateParts::ARC,
-                      head, modifier, features);
+                         head, modifier, features);
 #else
   AddWordPairFeatures(sentence, DependencyFeatureTemplateParts::ARC,
                       head, modifier, false, false, features);
@@ -69,11 +73,11 @@ void DependencyFeatures::AddArcFeaturesLight(
 // feature information.
 // The features are very similar to the ones used in Koo et al. EGSTRA.
 void DependencyFeatures::AddArcFeatures(DependencyInstanceNumeric* sentence,
-                                       int r,
-                                       int head,
-                                       int modifier) {
+                                        int r,
+                                        int head,
+                                        int modifier) {
   DependencyOptions *options = static_cast<class DependencyPipe*>(pipe_)->
-      GetDependencyOptions();
+    GetDependencyOptions();
   if (!options->large_feature_set()) {
     AddArcFeaturesLight(sentence, r, head, modifier);
     return;
@@ -89,21 +93,21 @@ void DependencyFeatures::AddArcFeatures(DependencyInstanceNumeric* sentence,
 
 // Add features for arbitrary siblings.
 void DependencyFeatures::AddArbitrarySiblingFeatures(
-                          DependencyInstanceNumeric* sentence,
-                          int r,
-                          int head,
-                          int modifier,
-                          int sibling) {
+  DependencyInstanceNumeric* sentence,
+  int r,
+  int head,
+  int modifier,
+  int sibling) {
   AddSiblingFeatures(sentence, r, head, modifier, sibling, false);
 }
 
 // Add features for consecutive siblings.
 void DependencyFeatures::AddConsecutiveSiblingFeatures(
-                          DependencyInstanceNumeric* sentence,
-                          int r,
-                          int head,
-                          int modifier,
-                          int sibling) {
+  DependencyInstanceNumeric* sentence,
+  int r,
+  int head,
+  int modifier,
+  int sibling) {
   AddSiblingFeatures(sentence, r, head, modifier, sibling, true);
 }
 
@@ -122,7 +126,7 @@ void DependencyFeatures::AddSiblingFeatures(DependencyInstanceNumeric* sentence,
   int sentence_length = sentence->size();
   bool first_child = consecutive && (head == modifier);
   bool last_child = consecutive &&
-                    (sibling == sentence_length || sibling <= 0);
+    (sibling == sentence_length || sibling <= 0);
 
   CHECK_NE(sibling, 0) << "Currently, last child is encoded as s = -1.";
 
@@ -177,11 +181,11 @@ void DependencyFeatures::AddSiblingFeatures(DependencyInstanceNumeric* sentence,
 
   // Words/POS.
   HWID = (*word_ids)[head];
-  MWID = first_child? TOKEN_START : (*word_ids)[modifier];
-  SWID = last_child? TOKEN_STOP : (*word_ids)[sibling];
+  MWID = first_child ? TOKEN_START : (*word_ids)[modifier];
+  SWID = last_child ? TOKEN_STOP : (*word_ids)[sibling];
   HPID = (*pos_ids)[head];
-  MPID = first_child? TOKEN_START : (*pos_ids)[modifier];
-  SPID = last_child? TOKEN_STOP : (*pos_ids)[sibling];
+  MPID = first_child ? TOKEN_START : (*pos_ids)[modifier];
+  SPID = last_child ? TOKEN_STOP : (*pos_ids)[sibling];
 
   if (consecutive) {
     flags = DependencyFeatureTemplateParts::NEXTSIBL;
@@ -267,11 +271,11 @@ void DependencyFeatures::AddSiblingFeatures(DependencyInstanceNumeric* sentence,
 // Add features for grandparents.
 // The features are very similar to the ones used in Koo et al. EGSTRA.
 void DependencyFeatures::AddGrandparentFeatures(
-                          DependencyInstanceNumeric* sentence,
-                          int r,
-                          int grandparent,
-                          int head,
-                          int modifier) {
+  DependencyInstanceNumeric* sentence,
+  int r,
+  int grandparent,
+  int head,
+  int modifier) {
   CHECK(!input_features_[r]);
   BinaryFeatures *features = new BinaryFeatures;
   input_features_[r] = features;
@@ -283,7 +287,7 @@ void DependencyFeatures::AddGrandparentFeatures(
     }
     AddWordPairFeatures(sentence, DependencyFeatureTemplateParts::GRANDPAR_G_M,
                         grandparent, modifier, true, true, features);
-	}
+  }
 
   // Relative position of the grandparent, head and modifier.
   uint8_t direction_code_gh; // 0x1 if right attachment, 0x0 otherwise.
@@ -424,13 +428,229 @@ void DependencyFeatures::AddGrandparentFeatures(
   AddFeature(fkey, features);
 }
 
+// Add features for grand-siblings.
+void DependencyFeatures::AddGrandSiblingFeatures(DependencyInstanceNumeric* sentence,
+                                                 int r,
+                                                 int grandparent,
+                                                 int head,
+                                                 int modifier,
+                                                 int sibling) {
+  CHECK(!input_features_[r]);
+  BinaryFeatures *features = new BinaryFeatures;
+  input_features_[r] = features;
+
+  int sentence_length = sentence->size();
+  bool first_child = (head == modifier);
+  bool last_child = (sibling == sentence_length || sibling <= 0);
+
+  CHECK_NE(sibling, 0) << "Currently, last child is encoded as s = -1.";
+
+  // Relative position of the grandparent, head and modifier.
+  uint8_t direction_code_gh; // 0x1 if right attachment, 0x0 otherwise.
+  uint8_t direction_code_hs; // 0x1 if right attachment, 0x0 otherwise.
+  uint8_t direction_code_gs; // 0x1 if right attachment, 0x0 otherwise.
+  uint8_t direction_code; // 0x0, 0x1, or 0x2 (see three cases below).
+
+  if (head < grandparent) {
+    direction_code_gh = 0x0;
+  } else {
+    direction_code_gh = 0x1;
+  }
+
+  if (sibling < head) {
+    direction_code_hs = 0x0;
+  } else {
+    direction_code_hs = 0x1;
+  }
+
+  if (sibling < grandparent) {
+    direction_code_gs = 0x0;
+  } else {
+    direction_code_gs = 0x1;
+  }
+
+  if (direction_code_gh == direction_code_hs) {
+    direction_code = 0x0; // Pointing in the same direction: g - h - m - s.
+  } else if (direction_code_hs != direction_code_gs) {
+    direction_code = 0x1; // Zig-zag inwards: g - s - m - h.
+  } else {
+    direction_code = 0x2; // Non-projective: s - m - g - h or s - g - m - h.
+  }
+
+  // Codewords for accommodating word/POS information.
+  uint16_t HWID, MWID, GWID, SWID;
+  uint8_t HPID, MPID, GPID, SPID;
+
+  // Array of form/lemma IDs.
+  const vector<int>* word_ids = &sentence->GetFormIds();
+
+  // Array of POS/CPOS IDs.
+  const vector<int>* pos_ids = &sentence->GetCoarsePosIds();
+
+  uint64_t fkey;
+  uint8_t flags = 0;
+
+  // Words/POS.
+  GWID = (*word_ids)[grandparent];
+  HWID = (*word_ids)[head];
+  MWID = first_child ? TOKEN_START : (*word_ids)[modifier];
+  SWID = last_child ? TOKEN_STOP : (*word_ids)[sibling];
+  GPID = (*pos_ids)[grandparent];
+  HPID = (*pos_ids)[head];
+  MPID = first_child ? TOKEN_START : (*pos_ids)[modifier];
+  SPID = last_child ? TOKEN_STOP : (*pos_ids)[sibling];
+
+  flags = DependencyFeatureTemplateParts::GRANDSIBL;
+
+  // Maximum is 255 feature templates.
+  CHECK_LT(DependencyFeatureTemplateGrandSibl::COUNT, 256);
+
+  // Add direction information.
+  flags |= (direction_code << 6); // 2 more bits.
+
+  // Bias feature.
+  fkey = encoder_.CreateFKey_NONE(DependencyFeatureTemplateGrandSibl::BIAS, flags);
+  AddFeature(fkey, features);
+
+  // Quadruplet POS feature.
+  fkey = encoder_.CreateFKey_PPPP(DependencyFeatureTemplateGrandSibl::GP_HP_MP_SP, flags, GPID, HPID, MPID, SPID);
+  AddFeature(fkey, features);
+
+  // Quadruplet unilexical features.
+  fkey = encoder_.CreateFKey_WPPP(DependencyFeatureTemplateGrandSibl::GW_HP_MP_SP, flags, GWID, HPID, MPID, SPID);
+  AddFeature(fkey, features);
+  fkey = encoder_.CreateFKey_WPPP(DependencyFeatureTemplateGrandSibl::GP_HW_MP_SP, flags, HWID, GPID, MPID, SPID);
+  AddFeature(fkey, features);
+  fkey = encoder_.CreateFKey_WPPP(DependencyFeatureTemplateGrandSibl::GP_HP_MW_SP, flags, MWID, GPID, HPID, SPID);
+  AddFeature(fkey, features);
+  fkey = encoder_.CreateFKey_WPPP(DependencyFeatureTemplateGrandSibl::GP_HP_MP_SW, flags, SWID, GPID, HPID, MPID);
+  AddFeature(fkey, features);
+
+  if (FLAGS_use_pair_features_grandsibling_conjunctions) {
+    if (modifier != head && sentence->IsCoordination(modifier) &&
+        sibling > 0 && sibling < sentence->size()) {
+      AddWordPairFeatures(sentence, DependencyFeatureTemplateParts::GRANDSIBL_G_S,
+                          grandparent, sibling, true, true, features);
+    }
+  }
+}
+
+// Add features for tri-siblings.
+void DependencyFeatures::AddTriSiblingFeatures(DependencyInstanceNumeric* sentence,
+                                               int r,
+                                               int head,
+                                               int modifier,
+                                               int sibling,
+                                               int other_sibling) {
+  CHECK(!input_features_[r]);
+  BinaryFeatures *features = new BinaryFeatures;
+  input_features_[r] = features;
+
+  // TODO(afm).
+  int sentence_length = sentence->size();
+  bool first_child = (head == modifier);
+  bool last_child = (other_sibling == sentence_length || other_sibling <= 0);
+
+  CHECK_LT(sibling, sentence_length);
+  CHECK_GT(sibling, 0);
+  CHECK_NE(other_sibling, 0) << "Currently, last child is encoded as s = -1.";
+
+  // Direction of attachment.
+  uint8_t direction_code; // 0x1 if right attachment, 0x0 otherwise.
+
+  if (other_sibling < head) {
+    direction_code = 0x0;
+  } else {
+    direction_code = 0x1;
+  }
+
+  // Codewords for accommodating word/POS information.
+  uint16_t HWID, MWID, SWID, TWID;
+  uint8_t HPID, MPID, SPID, TPID;
+
+  // Array of form/lemma IDs.
+  const vector<int>* word_ids = &sentence->GetFormIds();
+
+  // Array of POS/CPOS IDs.
+  const vector<int>* pos_ids = &sentence->GetCoarsePosIds();
+
+  uint64_t fkey;
+  uint8_t flags = 0;
+
+  // Words/POS.
+  HWID = (*word_ids)[head];
+  MWID = first_child ? TOKEN_START : (*word_ids)[modifier];
+  SWID = (*word_ids)[sibling];
+  TWID = last_child ? TOKEN_STOP : (*word_ids)[other_sibling];
+  HPID = (*pos_ids)[head];
+  MPID = first_child ? TOKEN_START : (*pos_ids)[modifier];
+  SPID = (*pos_ids)[sibling];
+  TPID = last_child ? TOKEN_STOP : (*pos_ids)[other_sibling];
+
+  flags = DependencyFeatureTemplateParts::TRISIBL;
+
+  // Maximum is 255 feature templates.
+  CHECK_LT(DependencyFeatureTemplateTriSibl::COUNT, 256);
+
+  // Add direction information.
+  flags |= (direction_code << 6); // 1 more bit.
+
+  // Bias feature.
+  fkey = encoder_.CreateFKey_NONE(DependencyFeatureTemplateTriSibl::BIAS, flags);
+  AddFeature(fkey, features);
+
+  // Quadruplet POS feature.
+  fkey = encoder_.CreateFKey_PPPP(DependencyFeatureTemplateTriSibl::HP_MP_SP_TP, flags, HPID, MPID, SPID, TPID);
+  AddFeature(fkey, features);
+
+  // Quadruplet unilexical features.
+  AddFeature(fkey, features);
+  fkey = encoder_.CreateFKey_WPPP(DependencyFeatureTemplateTriSibl::HW_MP_SP_TP, flags, HWID, MPID, SPID, TPID);
+  AddFeature(fkey, features);
+  fkey = encoder_.CreateFKey_WPPP(DependencyFeatureTemplateTriSibl::HP_MW_SP_TP, flags, MWID, HPID, SPID, TPID);
+  AddFeature(fkey, features);
+  fkey = encoder_.CreateFKey_WPPP(DependencyFeatureTemplateTriSibl::HP_MP_SW_TP, flags, SWID, HPID, MPID, TPID);
+  AddFeature(fkey, features);
+  fkey = encoder_.CreateFKey_WPPP(DependencyFeatureTemplateTriSibl::HP_MP_SP_TW, flags, TWID, HPID, MPID, SPID);
+
+  // Triplet POS features.
+  fkey = encoder_.CreateFKey_PPP(DependencyFeatureTemplateTriSibl::HP_MP_TP, flags, HPID, MPID, TPID);
+  AddFeature(fkey, features);
+  fkey = encoder_.CreateFKey_PPP(DependencyFeatureTemplateTriSibl::MP_SP_TP, flags, MPID, SPID, TPID);
+  AddFeature(fkey, features);
+
+  // Triplet unilexical features.
+  fkey = encoder_.CreateFKey_WPP(DependencyFeatureTemplateTriSibl::HW_MP_TP, flags, HWID, MPID, TPID);
+  AddFeature(fkey, features);
+  fkey = encoder_.CreateFKey_WPP(DependencyFeatureTemplateTriSibl::HP_MW_TP, flags, MWID, HPID, TPID);
+  AddFeature(fkey, features);
+  fkey = encoder_.CreateFKey_WPP(DependencyFeatureTemplateTriSibl::HP_MP_TW, flags, TWID, HPID, MPID);
+  AddFeature(fkey, features);
+  fkey = encoder_.CreateFKey_WPP(DependencyFeatureTemplateTriSibl::MW_SP_TP, flags, MWID, SPID, TPID);
+  AddFeature(fkey, features);
+  fkey = encoder_.CreateFKey_WPP(DependencyFeatureTemplateTriSibl::MP_SW_TP, flags, SWID, MPID, TPID);
+  AddFeature(fkey, features);
+  fkey = encoder_.CreateFKey_WPP(DependencyFeatureTemplateTriSibl::MP_SP_TW, flags, TWID, MPID, SPID);
+  AddFeature(fkey, features);
+
+  // Pairwise POS features.
+  fkey = encoder_.CreateFKey_PP(DependencyFeatureTemplateTriSibl::MP_TP, flags, MPID, TPID);
+  AddFeature(fkey, features);
+
+  // Pairwise unilexical features.
+  fkey = encoder_.CreateFKey_WP(DependencyFeatureTemplateTriSibl::MW_TP, flags, MWID, TPID);
+  AddFeature(fkey, features);
+  fkey = encoder_.CreateFKey_WP(DependencyFeatureTemplateTriSibl::MP_TW, flags, TWID, MPID);
+  AddFeature(fkey, features);
+}
+
 // Add features for non-projective arcs.
 // Use the same arc-factored features plus a flag to distinguish the two.
 void DependencyFeatures::AddNonprojectiveArcFeatures(
-                          DependencyInstanceNumeric* sentence,
-                          int r,
-                          int head,
-                          int modifier) {
+  DependencyInstanceNumeric* sentence,
+  int r,
+  int head,
+  int modifier) {
   // TODO: use AddWordPairFeatures instead.
   // TODO: implement AddLightWordPairFeatures?
   CHECK(!input_features_[r]);
@@ -443,16 +663,16 @@ void DependencyFeatures::AddNonprojectiveArcFeatures(
 
 // Add features for directed path between two words.
 void DependencyFeatures::AddDirectedPathFeatures(
-                          DependencyInstanceNumeric* sentence,
-                          int r,
-                          int ancestor,
-                          int descendant) {
+  DependencyInstanceNumeric* sentence,
+  int r,
+  int ancestor,
+  int descendant) {
   CHECK(!input_features_[r]);
   BinaryFeatures *features = new BinaryFeatures;
   input_features_[r] = features;
 
-	int left_position, right_position;
-	int span_length;
+  int left_position, right_position;
+  int span_length;
 
   uint8_t direction_code; // 0x1 if right attachment, 0x0 otherwise.
   uint8_t binned_length_code; // Binned arc length.
@@ -552,18 +772,18 @@ void DependencyFeatures::AddDirectedPathFeatures(
 
 // Add features for head bigrams.
 void DependencyFeatures::AddHeadBigramFeatures(
-                          DependencyInstanceNumeric* sentence,
-                          int r,
-                          int head,
-                          int modifier,
-                          int previous_head) {
+  DependencyInstanceNumeric* sentence,
+  int r,
+  int head,
+  int modifier,
+  int previous_head) {
   CHECK(!input_features_[r]);
   BinaryFeatures *features = new BinaryFeatures;
   input_features_[r] = features;
 
-	int sentence_length = sentence->size();
-	int left_position, right_position;
-	int span_length;
+  int sentence_length = sentence->size();
+  int left_position, right_position;
+  int span_length;
 
   uint8_t crossing_arcs = 0x0; // 0x1 is arcs are crossing, 0x0 otherwise.
   uint8_t direction_code; // 0x1 if right attachment, 0x0 otherwise.
@@ -596,9 +816,9 @@ void DependencyFeatures::AddHeadBigramFeatures(
   }
 
   // Define flags for special cases where there are not 4 distinct words.
-  uint8_t same_head = (previous_head == head)? 0x1 : 0x0;
-  uint8_t head_left = (previous_modifier == head)? 0x2 : 0x0;
-  uint8_t head_right = (previous_head == modifier)? 0x4 : 0x0;
+  uint8_t same_head = (previous_head == head) ? 0x1 : 0x0;
+  uint8_t head_left = (previous_modifier == head) ? 0x2 : 0x0;
+  uint8_t head_right = (previous_head == modifier) ? 0x4 : 0x0;
   uint8_t flags_bigram = same_head | head_left | head_right;
 
   // 7 possible values for binned_length_code (3 bits)
@@ -664,12 +884,12 @@ void DependencyFeatures::AddHeadBigramFeatures(
   for (int mode = 0; mode < 2; ++mode) {
     // Code for feature type, mode and extended mode.
     flags = DependencyFeatureTemplateParts::BIGRAM;
-    
+
     flags |= (mode << 4); // 1 more bit.
     if (mode == 1) {
       flags |= (crossing_arcs << 5); // 1 more bit
       flags |= (direction_code_previous << 6); // 1 more bit
-      flags |= (direction_code << 7); // 1 more bit    
+      flags |= (direction_code << 7); // 1 more bit
     }
 
     // Bias feature.
@@ -678,30 +898,30 @@ void DependencyFeatures::AddHeadBigramFeatures(
 
     if (mode == 1) {
       fkey = encoder_.CreateFKey_PPPPP(DependencyFeatureTemplateBigram::pMP_MP_pDIST_DIST, flags,
-          pMPID, MPID, binned_length_code_previous, binned_length_code, flags_bigram);
+                                       pMPID, MPID, binned_length_code_previous, binned_length_code, flags_bigram);
       AddFeature(fkey, features);
     }
 
     // POS features.
-    fkey = encoder_.CreateFKey_PPPPP(DependencyFeatureTemplateBigram::JP_pMP_HP_MP, flags, 
-        JPID, pMPID, HPID, MPID, flags_bigram);
+    fkey = encoder_.CreateFKey_PPPPP(DependencyFeatureTemplateBigram::JP_pMP_HP_MP, flags,
+                                     JPID, pMPID, HPID, MPID, flags_bigram);
     AddFeature(fkey, features);
 
     // Unilexical features.
-    fkey = encoder_.CreateFKey_WPPPP(DependencyFeatureTemplateBigram::JW_pMP_HP_MP, flags, 
-        JWID, pMPID, HPID, MPID, flags_bigram);
+    fkey = encoder_.CreateFKey_WPPPP(DependencyFeatureTemplateBigram::JW_pMP_HP_MP, flags,
+                                     JWID, pMPID, HPID, MPID, flags_bigram);
     AddFeature(fkey, features);
 
-    fkey = encoder_.CreateFKey_WPPPP(DependencyFeatureTemplateBigram::JP_pMW_HP_MP, flags, 
-        pMWID, JPID, HPID, MPID, flags_bigram);
+    fkey = encoder_.CreateFKey_WPPPP(DependencyFeatureTemplateBigram::JP_pMW_HP_MP, flags,
+                                     pMWID, JPID, HPID, MPID, flags_bigram);
     AddFeature(fkey, features);
 
-    fkey = encoder_.CreateFKey_WPPPP(DependencyFeatureTemplateBigram::JP_pMP_HW_MP, flags, 
-        HWID, JPID, pMPID, MPID, flags_bigram);
+    fkey = encoder_.CreateFKey_WPPPP(DependencyFeatureTemplateBigram::JP_pMP_HW_MP, flags,
+                                     HWID, JPID, pMPID, MPID, flags_bigram);
     AddFeature(fkey, features);
 
-    fkey = encoder_.CreateFKey_WPPPP(DependencyFeatureTemplateBigram::JP_pMP_HP_MW, flags, 
-        MWID, JWID, pMPID, HPID, flags_bigram);
+    fkey = encoder_.CreateFKey_WPPPP(DependencyFeatureTemplateBigram::JP_pMP_HP_MW, flags,
+                                     MWID, JWID, pMPID, HPID, flags_bigram);
     AddFeature(fkey, features);
   }
 }
@@ -719,14 +939,14 @@ void DependencyFeatures::AddWordPairFeatures(DependencyInstanceNumeric* sentence
   int sentence_length = sentence->size();
   // True if labeled dependency parsing.
   bool labeled =
-      static_cast<DependencyOptions*>(pipe_->GetOptions())->labeled();
+    static_cast<DependencyOptions*>(pipe_->GetOptions())->labeled();
 
   // Only 4 bits are allowed in feature_type.
   CHECK_LT(pair_type, 16);
   CHECK_GE(pair_type, 0);
   uint8_t feature_type = pair_type;
 
-  int max_token_context = FLAGS_dependency_token_context; // 2.
+  int max_token_context = FLAGS_dependency_token_context; // 1.
 
   uint8_t direction_code; // 0x1 if right attachment, 0x0 otherwise.
   uint8_t binned_length_code; // Binned arc length.
@@ -744,7 +964,7 @@ void DependencyFeatures::AddWordPairFeatures(DependencyInstanceNumeric* sentence
   int arc_length = right_position - left_position;
 
   // 7 possible values for binned_length_code (3 bits).
-  exact_length_code = (arc_length > 0xff)? 0xff : arc_length;
+  exact_length_code = (arc_length > 0xff) ? 0xff : arc_length;
   if (arc_length > 40) {
     binned_length_code = 0x6;
   } else if (arc_length > 30) {
@@ -826,58 +1046,58 @@ void DependencyFeatures::AddWordPairFeatures(DependencyInstanceNumeric* sentence
 
   // Contextual information.
   // Context size = 1:
-  pHLID = (head > 0)? sentence->GetLemmaId(head - 1) : TOKEN_START;
-  pMLID = (modifier > 0)? sentence->GetLemmaId(modifier - 1) : TOKEN_START;
-  pHWID = (head > 0)? sentence->GetFormId(head - 1) : TOKEN_START;
-  pMWID = (modifier > 0)? sentence->GetFormId(modifier - 1) : TOKEN_START;
-  pHPID = (head > 0)? sentence->GetCoarsePosId(head - 1) : TOKEN_START;
-  pMPID = (modifier > 0)? sentence->GetCoarsePosId(modifier - 1) : TOKEN_START;
-  pHQID = (head > 0)? sentence->GetPosId(head - 1) : TOKEN_START;
-  pMQID = (modifier > 0)? sentence->GetPosId(modifier - 1) : TOKEN_START;
+  pHLID = (head > 0) ? sentence->GetLemmaId(head - 1) : TOKEN_START;
+  pMLID = (modifier > 0) ? sentence->GetLemmaId(modifier - 1) : TOKEN_START;
+  pHWID = (head > 0) ? sentence->GetFormId(head - 1) : TOKEN_START;
+  pMWID = (modifier > 0) ? sentence->GetFormId(modifier - 1) : TOKEN_START;
+  pHPID = (head > 0) ? sentence->GetCoarsePosId(head - 1) : TOKEN_START;
+  pMPID = (modifier > 0) ? sentence->GetCoarsePosId(modifier - 1) : TOKEN_START;
+  pHQID = (head > 0) ? sentence->GetPosId(head - 1) : TOKEN_START;
+  pMQID = (modifier > 0) ? sentence->GetPosId(modifier - 1) : TOKEN_START;
 
-  nHLID = (head < sentence_length - 1)?
-      sentence->GetLemmaId(head + 1) : TOKEN_STOP;
-  nMLID = (modifier < sentence_length - 1)?
-      sentence->GetLemmaId(modifier + 1) : TOKEN_STOP;
-  nHWID = (head < sentence_length - 1)?
-      sentence->GetFormId(head + 1) : TOKEN_STOP;
-  nMWID = (modifier < sentence_length - 1)?
-      sentence->GetFormId(modifier + 1) : TOKEN_STOP;
-  nHPID = (head < sentence_length - 1)?
-      sentence->GetCoarsePosId(head + 1) : TOKEN_STOP;
-  nMPID = (modifier < sentence_length - 1)?
-      sentence->GetCoarsePosId(modifier + 1) : TOKEN_STOP;
-  nHQID = (head < sentence_length - 1)?
-      sentence->GetPosId(head + 1) : TOKEN_STOP;
-  nMQID = (modifier < sentence_length - 1)?
-      sentence->GetPosId(modifier + 1) : TOKEN_STOP;
+  nHLID = (head < sentence_length - 1) ?
+    sentence->GetLemmaId(head + 1) : TOKEN_STOP;
+  nMLID = (modifier < sentence_length - 1) ?
+    sentence->GetLemmaId(modifier + 1) : TOKEN_STOP;
+  nHWID = (head < sentence_length - 1) ?
+    sentence->GetFormId(head + 1) : TOKEN_STOP;
+  nMWID = (modifier < sentence_length - 1) ?
+    sentence->GetFormId(modifier + 1) : TOKEN_STOP;
+  nHPID = (head < sentence_length - 1) ?
+    sentence->GetCoarsePosId(head + 1) : TOKEN_STOP;
+  nMPID = (modifier < sentence_length - 1) ?
+    sentence->GetCoarsePosId(modifier + 1) : TOKEN_STOP;
+  nHQID = (head < sentence_length - 1) ?
+    sentence->GetPosId(head + 1) : TOKEN_STOP;
+  nMQID = (modifier < sentence_length - 1) ?
+    sentence->GetPosId(modifier + 1) : TOKEN_STOP;
 
   // Context size = 2:
-  ppHLID = (head > 1)? sentence->GetLemmaId(head - 2) : TOKEN_START;
-  ppMLID = (modifier > 1)? sentence->GetLemmaId(modifier - 2) : TOKEN_START;
-  ppHWID = (head > 1)? sentence->GetFormId(head - 2) : TOKEN_START;
-  ppMWID = (modifier > 1)? sentence->GetFormId(modifier - 2) : TOKEN_START;
-  ppHPID = (head > 1)? sentence->GetCoarsePosId(head - 2) : TOKEN_START;
-  ppMPID = (modifier > 1)? sentence->GetCoarsePosId(modifier - 2) : TOKEN_START;
-  ppHQID = (head > 1)? sentence->GetPosId(head - 2) : TOKEN_START;
-  ppMQID = (modifier > 1)? sentence->GetPosId(modifier - 2) : TOKEN_START;
+  ppHLID = (head > 1) ? sentence->GetLemmaId(head - 2) : TOKEN_START;
+  ppMLID = (modifier > 1) ? sentence->GetLemmaId(modifier - 2) : TOKEN_START;
+  ppHWID = (head > 1) ? sentence->GetFormId(head - 2) : TOKEN_START;
+  ppMWID = (modifier > 1) ? sentence->GetFormId(modifier - 2) : TOKEN_START;
+  ppHPID = (head > 1) ? sentence->GetCoarsePosId(head - 2) : TOKEN_START;
+  ppMPID = (modifier > 1) ? sentence->GetCoarsePosId(modifier - 2) : TOKEN_START;
+  ppHQID = (head > 1) ? sentence->GetPosId(head - 2) : TOKEN_START;
+  ppMQID = (modifier > 1) ? sentence->GetPosId(modifier - 2) : TOKEN_START;
 
-  nnHLID = (head < sentence_length - 2)?
-      sentence->GetLemmaId(head + 2) : TOKEN_STOP;
-  nnMLID = (modifier < sentence_length - 2)?
-      sentence->GetLemmaId(modifier + 2) : TOKEN_STOP;
-  nnHWID = (head < sentence_length - 2)?
-      sentence->GetFormId(head + 2) : TOKEN_STOP;
-  nnMWID = (modifier < sentence_length - 2)?
-      sentence->GetFormId(modifier + 2) : TOKEN_STOP;
-  nnHPID = (head < sentence_length - 2)?
-      sentence->GetCoarsePosId(head + 2) : TOKEN_STOP;
-  nnMPID = (modifier < sentence_length - 2)?
-      sentence->GetCoarsePosId(modifier + 2) : TOKEN_STOP;
-  nnHQID = (head < sentence_length - 2)?
-      sentence->GetPosId(head + 2) : TOKEN_STOP;
-  nnMQID = (modifier < sentence_length - 2)?
-      sentence->GetPosId(modifier + 2) : TOKEN_STOP;
+  nnHLID = (head < sentence_length - 2) ?
+    sentence->GetLemmaId(head + 2) : TOKEN_STOP;
+  nnMLID = (modifier < sentence_length - 2) ?
+    sentence->GetLemmaId(modifier + 2) : TOKEN_STOP;
+  nnHWID = (head < sentence_length - 2) ?
+    sentence->GetFormId(head + 2) : TOKEN_STOP;
+  nnMWID = (modifier < sentence_length - 2) ?
+    sentence->GetFormId(modifier + 2) : TOKEN_STOP;
+  nnHPID = (head < sentence_length - 2) ?
+    sentence->GetCoarsePosId(head + 2) : TOKEN_STOP;
+  nnMPID = (modifier < sentence_length - 2) ?
+    sentence->GetCoarsePosId(modifier + 2) : TOKEN_STOP;
+  nnHQID = (head < sentence_length - 2) ?
+    sentence->GetPosId(head + 2) : TOKEN_STOP;
+  nnMQID = (modifier < sentence_length - 2) ?
+    sentence->GetPosId(modifier + 2) : TOKEN_STOP;
 
   // Code for feature type.
   flags = feature_type; // 4 bits.
@@ -918,9 +1138,9 @@ void DependencyFeatures::AddWordPairFeatures(DependencyInstanceNumeric* sentence
       CHECK_LT(HFID, 0xfff);
       if (j >= 0xf) {
         LOG(WARNING) << "Too many morphological features (" << j << ")";
-        HFID = (HFID << 4) | ((uint16_t) 0xf);
+        HFID = (HFID << 4) | ((uint16_t)0xf);
       } else {
-        HFID = (HFID << 4) | ((uint16_t) j);
+        HFID = (HFID << 4) | ((uint16_t)j);
       }
       fkey = encoder_.CreateFKey_W(DependencyFeatureTemplateArc::HF, flags, HFID);
       AddFeature(fkey, features);
@@ -949,9 +1169,9 @@ void DependencyFeatures::AddWordPairFeatures(DependencyInstanceNumeric* sentence
       CHECK_LT(MFID, 0xfff);
       if (k >= 0xf) {
         LOG(WARNING) << "Too many morphological features (" << k << ")";
-        MFID = (MFID << 4) | ((uint16_t) 0xf);
+        MFID = (MFID << 4) | ((uint16_t)0xf);
       } else {
-        MFID = (MFID << 4) | ((uint16_t) k);
+        MFID = (MFID << 4) | ((uint16_t)k);
       }
       fkey = encoder_.CreateFKey_W(DependencyFeatureTemplateArc::MF, flags, MFID);
       AddFeature(fkey, features);
@@ -1123,18 +1343,18 @@ void DependencyFeatures::AddWordPairFeatures(DependencyInstanceNumeric* sentence
       CHECK_LT(HFID, 0xfff);
       if (j >= 0xf) {
         LOG(WARNING) << "Too many morphological features (" << j << ")";
-        HFID = (HFID << 4) | ((uint16_t) 0xf);
+        HFID = (HFID << 4) | ((uint16_t)0xf);
       } else {
-        HFID = (HFID << 4) | ((uint16_t) j);
+        HFID = (HFID << 4) | ((uint16_t)j);
       }
       for (int k = 0; k < sentence->GetNumMorphFeatures(modifier); ++k) {
         MFID = sentence->GetMorphFeature(modifier, k);
         CHECK_LT(MFID, 0xfff);
         if (k >= 0xf) {
           LOG(WARNING) << "Too many morphological features (" << k << ")";
-          MFID = (MFID << 4) | ((uint16_t) 0xf);
+          MFID = (MFID << 4) | ((uint16_t)0xf);
         } else {
-          MFID = (MFID << 4) | ((uint16_t) k);
+          MFID = (MFID << 4) | ((uint16_t)k);
         }
         // Morphological features.
         fkey = encoder_.CreateFKey_WW(DependencyFeatureTemplateArc::HF_MF, flags, HFID, MFID);
@@ -1264,7 +1484,7 @@ void DependencyFeatures::AddWordPairFeaturesMST(DependencyInstanceNumeric* sente
   int sentence_length = sentence->size();
   // True if labeled dependency parsing.
   bool labeled =
-      static_cast<DependencyOptions*>(pipe_->GetOptions())->labeled();
+    static_cast<DependencyOptions*>(pipe_->GetOptions())->labeled();
 
   // True if using morpho-syntactic features.
   bool use_morphological_features = false;
@@ -1335,10 +1555,10 @@ void DependencyFeatures::AddWordPairFeaturesMST(DependencyInstanceNumeric* sente
   MPID = (*pos_ids)[modifier];
 
   // Contextual information.
-  pHPID = (head > 0)? (*pos_ids)[head - 1] : TOKEN_START;
-  pMPID = (modifier > 0)? (*pos_ids)[modifier - 1] : TOKEN_START;
-  nHPID = (head < sentence_length - 1)? (*pos_ids)[head + 1] : TOKEN_STOP;
-  nMPID = (modifier < sentence_length - 1)?
+  pHPID = (head > 0) ? (*pos_ids)[head - 1] : TOKEN_START;
+  pMPID = (modifier > 0) ? (*pos_ids)[modifier - 1] : TOKEN_START;
+  nHPID = (head < sentence_length - 1) ? (*pos_ids)[head + 1] : TOKEN_STOP;
+  nMPID = (modifier < sentence_length - 1) ?
     (*pos_ids)[modifier + 1] : TOKEN_STOP;
 
   // Maximum is 255 feature templates.
@@ -1351,6 +1571,8 @@ void DependencyFeatures::AddWordPairFeaturesMST(DependencyInstanceNumeric* sente
 
     if (mode == 1) {
       flags |= (direction_code << 5); // 1 more bit.
+      // NOTE: This will overflow the 8-bit size (it may take 9 bits)!!!!!
+      // TODO(atm): fix this!!!
       flags |= (binned_length_code << 6); // 3 more bits.
     }
 
@@ -1397,18 +1619,18 @@ void DependencyFeatures::AddWordPairFeaturesMST(DependencyInstanceNumeric* sente
         CHECK_LT(HFID, 0xfff);
         if (j >= 0xf) {
           LOG(WARNING) << "Too many morphological features (" << j << ")";
-          HFID = (HFID << 4) | ((uint16_t) 0xf);
+          HFID = (HFID << 4) | ((uint16_t)0xf);
         } else {
-          HFID = (HFID << 4) | ((uint16_t) j);
+          HFID = (HFID << 4) | ((uint16_t)j);
         }
         for (int k = 0; k < sentence->GetNumMorphFeatures(modifier); ++k) {
           MFID = sentence->GetMorphFeature(modifier, k);
           CHECK_LT(MFID, 0xfff);
           if (k >= 0xf) {
             LOG(WARNING) << "Too many morphological features (" << k << ")";
-            MFID = (MFID << 4) | ((uint16_t) 0xf);
+            MFID = (MFID << 4) | ((uint16_t)0xf);
           } else {
-            MFID = (MFID << 4) | ((uint16_t) k);
+            MFID = (MFID << 4) | ((uint16_t)k);
           }
           // Morphological features.
           fkey = encoder_.CreateFKey_WW(DependencyFeatureTemplateArc::HF_MF, flags, HFID, MFID);

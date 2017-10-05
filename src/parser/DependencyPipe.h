@@ -1,20 +1,20 @@
-// Copyright (c) 2012 Andre Martins
+// Copyright (c) 2012-2015 Andre Martins
 // All Rights Reserved.
 //
-// This file is part of TurboParser 2.0.
+// This file is part of TurboParser 2.3.
 //
-// TurboParser 2.0 is free software: you can redistribute it and/or modify
+// TurboParser 2.3 is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Lesser General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
 //
-// TurboParser 2.0 is distributed in the hope that it will be useful,
+// TurboParser 2.3 is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 // GNU Lesser General Public License for more details.
 //
 // You should have received a copy of the GNU Lesser General Public License
-// along with TurboParser 2.0.  If not, see <http://www.gnu.org/licenses/>.
+// along with TurboParser 2.3.  If not, see <http://www.gnu.org/licenses/>.
 
 #ifndef DEPENDENCYPIPE_H_
 #define DEPENDENCYPIPE_H_
@@ -31,15 +31,15 @@
 #include "DependencyDecoder.h"
 
 class DependencyPipe : public Pipe {
- public:
-  DependencyPipe(Options* options) : Pipe(options) { 
-    token_dictionary_ = NULL; 
+public:
+  DependencyPipe(Options* options) : Pipe(options) {
+    token_dictionary_ = NULL;
     pruner_parameters_ = NULL;
     train_pruner_ = false;
   }
-  virtual ~DependencyPipe() { 
+  virtual ~DependencyPipe() {
     delete token_dictionary_;
-    delete pruner_parameters_; 
+    delete pruner_parameters_;
   }
 
   DependencyReader *GetDependencyReader() {
@@ -63,12 +63,21 @@ class DependencyPipe : public Pipe {
   void SetPrunerParameters(Parameters *pruner_parameters) {
     pruner_parameters_ = pruner_parameters;
   }
-  void LoadPrunerModelFile() { 
+  void LoadPrunerModelFile() {
     LoadPrunerModelByName(GetDependencyOptions()->GetPrunerModelFilePath());
   }
 
- protected:
-  void CreateDictionary() { 
+  // Check if a tree is projective.
+  // TODO(atm): This function should probably be moved to another class.
+  bool IsProjectiveTree(const vector<int> &heads) const {
+    for (int m = 1; m < heads.size(); ++m) {
+      if (!IsProjectiveArc(heads, heads[m], m)) return false;
+    }
+    return true;
+  }
+
+protected:
+  void CreateDictionary() {
     dictionary_ = new DependencyDictionary(this);
     GetDependencyDictionary()->SetTokenDictionary(token_dictionary_);
   };
@@ -91,7 +100,7 @@ class DependencyPipe : public Pipe {
 
   Instance *GetFormattedInstance(Instance *instance) {
     DependencyInstanceNumeric *instance_numeric =
-          new DependencyInstanceNumeric;
+      new DependencyInstanceNumeric;
     instance_numeric->Initialize(*GetDependencyDictionary(),
                                  static_cast<DependencyInstance*>(instance));
     return instance_numeric;
@@ -103,9 +112,18 @@ class DependencyPipe : public Pipe {
   void LoadPrunerModel(FILE* fs);
   void LoadPrunerModelByName(const string &model_name);
 
+  void EnforceWellFormedGraph(Instance *instance,
+                              const vector<Part*> &arcs,
+                              vector<int> *inserted_heads,
+                              vector<int> *inserted_modifiers);
   void EnforceConnectedGraph(Instance *instance,
                              const vector<Part*> &arcs,
-                             vector<int> *inserted_root_nodes);
+                             vector<int> *inserted_heads,
+                             vector<int> *inserted_modifiers);
+  void EnforceProjectiveGraph(Instance *instance,
+                              const vector<Part*> &arcs,
+                              vector<int> *inserted_heads,
+                              vector<int> *inserted_modifiers);
 
   void MakeParts(Instance *instance, Parts *parts,
                  vector<double> *gold_outputs);
@@ -124,6 +142,12 @@ class DependencyPipe : public Pipe {
   void MakePartsGrandparents(Instance *instance,
                              Parts *parts,
                              vector<double> *gold_outputs);
+  void MakePartsGrandSiblings(Instance *instance,
+                              Parts *parts,
+                              vector<double> *gold_outputs);
+  void MakePartsTriSiblings(Instance *instance,
+                            Parts *parts,
+                            vector<double> *gold_outputs);
   void MakePartsNonprojectiveArcs(Instance *instance,
                                   Parts *parts,
                                   vector<double> *gold_outputs);
@@ -140,7 +164,7 @@ class DependencyPipe : public Pipe {
     MakeSelectedFeatures(instance, parts, pruner, selected_parts, features);
   }
   void MakeSelectedFeatures(Instance *instance, Parts *parts,
-      const vector<bool>& selected_parts, Features *features) {
+                            const vector<bool>& selected_parts, Features *features) {
     // Set pruner = false unless we're training the pruner.
     MakeSelectedFeatures(instance, parts, train_pruner_, selected_parts,
                          features);
@@ -201,7 +225,9 @@ class DependencyPipe : public Pipe {
     num_tokens_ = 0;
     gettimeofday(&start_clock_, NULL);
   }
-  virtual void EvaluateInstance(Instance *instance, Parts *parts,
+  virtual void EvaluateInstance(Instance *instance,
+                                Instance *output_instance,
+                                Parts *parts,
                                 const vector<double> &gold_outputs,
                                 const vector<double> &predicted_outputs) {
     DependencyInstance *dependency_instance =
@@ -235,32 +261,34 @@ class DependencyPipe : public Pipe {
   virtual void EndEvaluation() {
     LOG(INFO) << "Parsing accuracy: " <<
       static_cast<double>(num_tokens_ - num_head_mistakes_) /
-        static_cast<double>(num_tokens_);
+      static_cast<double>(num_tokens_);
     LOG(INFO) << "Pruning recall: " <<
       static_cast<double>(num_tokens_ - num_head_pruned_mistakes_) /
-        static_cast<double>(num_tokens_);
+      static_cast<double>(num_tokens_);
     LOG(INFO) << "Pruning efficiency: " <<
       static_cast<double>(num_heads_after_pruning_) /
-        static_cast<double>(num_tokens_)
-              << " possible heads per token.";
+      static_cast<double>(num_tokens_)
+      << " possible heads per token.";
     timeval end_clock;
     gettimeofday(&end_clock, NULL);
     double num_seconds =
-        static_cast<double>(diff_ms(end_clock,start_clock_)) / 1000.0;
+      static_cast<double>(diff_ms(end_clock, start_clock_)) / 1000.0;
     double tokens_per_second = static_cast<double>(num_tokens_) / num_seconds;
     LOG(INFO) << "Parsing speed: "
-              << tokens_per_second << " tokens per second.";
+      << tokens_per_second << " tokens per second.";
   }
 
+#if 0
   void GetAllAncestors(const vector<int> &heads,
                        int descend,
-                       vector<int>* ancestors);
+                       vector<int>* ancestors) const;
+#endif
   bool ExistsPath(const vector<int> &heads,
                   int ancest,
-                  int descend);
-  bool IsProjectiveArc(const vector<int> &heads, int par, int ch);
+                  int descend) const;
+  bool IsProjectiveArc(const vector<int> &heads, int par, int ch) const;
 
- protected:
+protected:
   TokenDictionary *token_dictionary_;
   bool train_pruner_;
   Parameters *pruner_parameters_;

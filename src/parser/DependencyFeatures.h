@@ -1,20 +1,20 @@
-// Copyright (c) 2012 Andre Martins
+// Copyright (c) 2012-2015 Andre Martins
 // All Rights Reserved.
 //
-// This file is part of TurboParser 2.0.
+// This file is part of TurboParser 2.3.
 //
-// TurboParser 2.0 is free software: you can redistribute it and/or modify
+// TurboParser 2.3 is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Lesser General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
 //
-// TurboParser 2.0 is distributed in the hope that it will be useful,
+// TurboParser 2.3 is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 // GNU Lesser General Public License for more details.
 //
 // You should have received a copy of the GNU Lesser General Public License
-// along with TurboParser 2.0.  If not, see <http://www.gnu.org/licenses/>.
+// along with TurboParser 2.3.  If not, see <http://www.gnu.org/licenses/>.
 
 #ifndef DEPENDENCYFEATURES_H_
 #define DEPENDENCYFEATURES_H_
@@ -41,19 +41,19 @@ class DependencyOptions;
 // Max-​Mar­gin Markov Net­works.
 // Jour­nal of Ma­chine Learn­ing Re­search 9(Aug):​1775–1822, 2008.
 
-class DependencyFeatures: public Features {
- public:
+class DependencyFeatures : public Features {
+public:
   DependencyFeatures() {};
   DependencyFeatures(Pipe* pipe) { pipe_ = pipe; }
   virtual ~DependencyFeatures() { Clear(); }
 
- public:
+public:
   void Clear() {
     for (int r = 0; r < input_features_.size(); ++r) {
       if (!input_features_[r]) continue;
-        input_features_[r]->clear();
-        delete input_features_[r];
-        input_features_[r] = NULL;
+      input_features_[r]->clear();
+      delete input_features_[r];
+      input_features_[r] = NULL;
     }
     input_features_.clear();
   }
@@ -64,7 +64,7 @@ class DependencyFeatures: public Features {
   }
 
   int GetNumPartFeatures(int r) const {
-    return (NULL == input_features_[r])? 0 : input_features_[r]->size();
+    return (NULL == input_features_[r]) ? 0 : input_features_[r]->size();
   };
 
   int GetPartFeature(int r, int j) const {
@@ -79,7 +79,7 @@ class DependencyFeatures: public Features {
     return input_features_[r];
   };
 
- public:
+public:
   void AddArcFeaturesLight(DependencyInstanceNumeric *sentence,
                            int r,
                            int head,
@@ -115,6 +115,20 @@ class DependencyFeatures: public Features {
                               int head,
                               int modifier);
 
+  void AddGrandSiblingFeatures(DependencyInstanceNumeric* sentence,
+                               int r,
+                               int grandparent,
+                               int head,
+                               int modifier,
+                               int sibling);
+
+  void AddTriSiblingFeatures(DependencyInstanceNumeric* sentence,
+                             int r,
+                             int head,
+                             int modifier,
+                             int sibling,
+                             int other_sibling);
+
   void AddNonprojectiveArcFeatures(DependencyInstanceNumeric* sentence,
                                    int r,
                                    int head,
@@ -131,7 +145,7 @@ class DependencyFeatures: public Features {
                              int modifier,
                              int previous_head);
 
- protected:
+protected:
   void AddWordPairFeatures(DependencyInstanceNumeric* sentence,
                            int pair_type,
                            int head,
@@ -141,16 +155,16 @@ class DependencyFeatures: public Features {
                            BinaryFeatures *features);
 
   void AddWordPairFeaturesMST(DependencyInstanceNumeric* sentence,
-                                int pair_type,
-                                int head,
-                                int modifier,
-                                BinaryFeatures *features);
+                              int pair_type,
+                              int head,
+                              int modifier,
+                              BinaryFeatures *features);
 
   void AddFeature(uint64_t fkey, BinaryFeatures* features) {
     features->push_back(fkey);
   }
 
- protected:
+protected:
   vector<BinaryFeatures*> input_features_; // Vector of input features.
   FeatureEncoder encoder_; // Encoder that converts features into a codeword.
 };

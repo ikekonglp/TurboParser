@@ -1,39 +1,64 @@
-// Copyright (c) 2012 Andre Martins
+// Copyright (c) 2012-2015 Andre Martins
 // All Rights Reserved.
 //
-// This file is part of TurboParser 2.0.
+// This file is part of TurboParser 2.3.
 //
-// TurboParser 2.0 is free software: you can redistribute it and/or modify
+// TurboParser 2.3 is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Lesser General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
 //
-// TurboParser 2.0 is distributed in the hope that it will be useful,
+// TurboParser 2.3 is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 // GNU Lesser General Public License for more details.
 //
 // You should have received a copy of the GNU Lesser General Public License
-// along with TurboParser 2.0.  If not, see <http://www.gnu.org/licenses/>.
+// along with TurboParser 2.3.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "DependencyPipe.h"
 #include <iostream>
 #include <sstream>
 #include <vector>
 #include <queue>
+#ifndef _WIN32
 #include <sys/time.h>
-
+#else
+#include <time.h>
+#endif
 using namespace std;
 
+// Define the current model version and the oldest back-compatible version.
+// The format is AAAA.BBBB.CCCC, e.g., 2 0003 0000 means "2.3.0".
+const uint64_t kParserModelVersion = 200030000;
+const uint64_t kOldestCompatibleParserModelVersion = 200030000;
+const uint64_t kParserModelCheck = 1234567890;
+
 void DependencyPipe::SaveModel(FILE* fs) {
+  bool success;
+  success = WriteUINT64(fs, kParserModelCheck);
+  CHECK(success);
+  success = WriteUINT64(fs, kParserModelVersion);
+  CHECK(success);
   token_dictionary_->Save(fs);
   Pipe::SaveModel(fs);
   pruner_parameters_->Save(fs);
 }
 
 void DependencyPipe::LoadModel(FILE* fs) {
+  bool success;
+  uint64_t model_check;
+  uint64_t model_version;
+  success = ReadUINT64(fs, &model_check);
+  CHECK(success);
+  CHECK_EQ(model_check, kParserModelCheck)
+    << "The model file is too old and not supported anymore.";
+  success = ReadUINT64(fs, &model_version);
+  CHECK(success);
+  CHECK_GE(model_version, kOldestCompatibleParserModelVersion)
+    << "The model file is too old and not supported anymore.";
   delete token_dictionary_;
-  CreateTokenDictionary();  
+  CreateTokenDictionary();
   static_cast<DependencyDictionary*>(dictionary_)->
     SetTokenDictionary(token_dictionary_);
   token_dictionary_->Load(fs);
@@ -60,7 +85,7 @@ void DependencyPipe::LoadPrunerModel(FILE* fs) {
 
 void DependencyPipe::LoadPrunerModelByName(const string &model_name) {
   FILE *fs = fopen(model_name.c_str(), "rb");
-  CHECK(fs) << "Could not open pruner model file for reading: " << model_name; 
+  CHECK(fs) << "Could not open pruner model file for reading: " << model_name;
   LoadPrunerModel(fs);
   fclose(fs);
 }
@@ -68,11 +93,9 @@ void DependencyPipe::LoadPrunerModelByName(const string &model_name) {
 void DependencyPipe::PreprocessData() {
   delete token_dictionary_;
   CreateTokenDictionary();
-  static_cast<DependencyDictionary*>(dictionary_)->
-    SetTokenDictionary(token_dictionary_);
-  token_dictionary_->InitializeFromReader(GetDependencyReader());
-  static_cast<DependencyDictionary*>(dictionary_)->
-    CreateLabelDictionary(GetDependencyReader());
+  static_cast<DependencyDictionary*>(dictionary_)->SetTokenDictionary(token_dictionary_);
+  static_cast<DependencyTokenDictionary*>(token_dictionary_)->Initialize(GetDependencyReader());
+  static_cast<DependencyDictionary*>(dictionary_)->CreateLabelDictionary(GetDependencyReader());
 }
 
 void DependencyPipe::ComputeScores(Instance *instance, Parts *parts,
@@ -98,17 +121,17 @@ void DependencyPipe::ComputeScores(Instance *instance, Parts *parts,
       (*scores)[r] = 0.0;
       DependencyPartArc *arc = static_cast<DependencyPartArc*>((*parts)[r]);
       const vector<int> &index_labeled_parts =
-          dependency_parts->FindLabeledArcs(arc->head(), arc->modifier());
+        dependency_parts->FindLabeledArcs(arc->head(), arc->modifier());
       vector<int> allowed_labels(index_labeled_parts.size());
       for (int k = 0; k < index_labeled_parts.size(); ++k) {
         DependencyPartLabeledArc *labeled_arc =
-            static_cast<DependencyPartLabeledArc*>(
-                (*parts)[index_labeled_parts[k]]);
+          static_cast<DependencyPartLabeledArc*>(
+            (*parts)[index_labeled_parts[k]]);
         allowed_labels[k] = labeled_arc->label();
       }
       vector<double> label_scores;
       parameters->ComputeLabelScores(part_features, allowed_labels,
-          &label_scores);
+                                     &label_scores);
       for (int k = 0; k < index_labeled_parts.size(); ++k) {
         (*scores)[index_labeled_parts[k]] = label_scores[k];
       }
@@ -163,33 +186,33 @@ void DependencyPipe::MakeGradientStep(Parts *parts,
     // conjoining with the label.
     if ((*parts)[r]->type() == DEPENDENCYPART_LABELEDARC) {
       DependencyPartLabeledArc *labeled_arc =
-                  static_cast<DependencyPartLabeledArc*>((*parts)[r]);
+        static_cast<DependencyPartLabeledArc*>((*parts)[r]);
       int index_part = dependency_parts->FindArc(labeled_arc->head(),
                                                  labeled_arc->modifier());
       CHECK_GE(index_part, 0);
 
       const BinaryFeatures &part_features =
-          features->GetPartFeatures(index_part);
+        features->GetPartFeatures(index_part);
 
       parameters->MakeLabelGradientStep(part_features, eta, iteration,
-                                         labeled_arc->label(),
-                                         predicted_output[r] - gold_output[r]);
+                                        labeled_arc->label(),
+                                        predicted_output[r] - gold_output[r]);
     } else if ((*parts)[r]->type() == DEPENDENCYPART_ARC && !train_pruner_ &&
-                GetDependencyOptions()->labeled()) {
+               GetDependencyOptions()->labeled()) {
       // TODO: Allow to have standalone features for unlabeled arcs.
       continue;
     } else {
       const BinaryFeatures &part_features =
-          features->GetPartFeatures(r);
+        features->GetPartFeatures(r);
 
       parameters->MakeGradientStep(part_features, eta, iteration,
-        predicted_output[r] - gold_output[r]);
+                                   predicted_output[r] - gold_output[r]);
     }
   }
 }
 
 void DependencyPipe::TouchParameters(Parts *parts, Features *features,
-                           const vector<bool> &selected_parts) {
+                                     const vector<bool> &selected_parts) {
   DependencyParts *dependency_parts = static_cast<DependencyParts*>(parts);
   Parameters *parameters = GetTrainingParameters();
 
@@ -200,24 +223,24 @@ void DependencyPipe::TouchParameters(Parts *parts, Features *features,
     // conjoining with the label.
     if ((*parts)[r]->type() == DEPENDENCYPART_LABELEDARC) {
       DependencyPartLabeledArc *labeled_arc =
-                  static_cast<DependencyPartLabeledArc*>((*parts)[r]);
+        static_cast<DependencyPartLabeledArc*>((*parts)[r]);
       int index_part = dependency_parts->FindArc(labeled_arc->head(),
                                                  labeled_arc->modifier());
       CHECK_GE(index_part, 0);
 
       const BinaryFeatures &part_features =
-          features->GetPartFeatures(index_part);
+        features->GetPartFeatures(index_part);
 
       parameters->MakeLabelGradientStep(part_features, 0.0, 0,
-                                         labeled_arc->label(),
-                                         0.0);
+                                        labeled_arc->label(),
+                                        0.0);
     } else if ((*parts)[r]->type() == DEPENDENCYPART_ARC && !train_pruner_ &&
-                GetDependencyOptions()->labeled()) {
+               GetDependencyOptions()->labeled()) {
       // TODO: Allow to have standalone features for unlabeled arcs.
       continue;
     } else {
       const BinaryFeatures &part_features =
-          features->GetPartFeatures(r);
+        features->GetPartFeatures(r);
 
       parameters->MakeGradientStep(part_features, 0.0, 0, 0.0);
     }
@@ -225,10 +248,10 @@ void DependencyPipe::TouchParameters(Parts *parts, Features *features,
 }
 
 void DependencyPipe::MakeFeatureDifference(Parts *parts,
-                                      Features *features,
-                                      const vector<double> &gold_output,
-                                      const vector<double> &predicted_output,
-                                      FeatureVector *difference) {
+                                           Features *features,
+                                           const vector<double> &gold_output,
+                                           const vector<double> &predicted_output,
+                                           FeatureVector *difference) {
   DependencyParts *dependency_parts = static_cast<DependencyParts*>(parts);
 
   for (int r = 0; r < parts->size(); ++r) {
@@ -238,20 +261,20 @@ void DependencyPipe::MakeFeatureDifference(Parts *parts,
     // conjoining with the label.
     if ((*parts)[r]->type() == DEPENDENCYPART_LABELEDARC) {
       DependencyPartLabeledArc *labeled_arc =
-                  static_cast<DependencyPartLabeledArc*>((*parts)[r]);
+        static_cast<DependencyPartLabeledArc*>((*parts)[r]);
       int index_part = dependency_parts->FindArc(labeled_arc->head(),
                                                  labeled_arc->modifier());
       CHECK_GE(index_part, 0);
       const BinaryFeatures &part_features =
-          features->GetPartFeatures(index_part);
+        features->GetPartFeatures(index_part);
 
       for (int j = 0; j < part_features.size(); ++j) {
         difference->mutable_labeled_weights()->Add(part_features[j],
-                                          labeled_arc->label(),
-                                          predicted_output[r] - gold_output[r]);
+                                                   labeled_arc->label(),
+                                                   predicted_output[r] - gold_output[r]);
       }
     } else if ((*parts)[r]->type() == DEPENDENCYPART_ARC && !train_pruner_ &&
-                GetDependencyOptions()->labeled()) {
+               GetDependencyOptions()->labeled()) {
       // TODO: Allow to have standalone features for unlabeled arcs.
       continue;
     } else {
@@ -259,7 +282,7 @@ void DependencyPipe::MakeFeatureDifference(Parts *parts,
 
       for (int j = 0; j < part_features.size(); ++j) {
         difference->mutable_weights()->Add(part_features[j],
-                                  predicted_output[r] - gold_output[r]);
+                                           predicted_output[r] - gold_output[r]);
       }
     }
   }
@@ -269,7 +292,7 @@ void DependencyPipe::MakeParts(Instance *instance,
                                Parts *parts,
                                vector<double> *gold_outputs) {
   int sentence_length =
-      static_cast<DependencyInstanceNumeric*>(instance)->size();
+    static_cast<DependencyInstanceNumeric*>(instance)->size();
   DependencyParts *dependency_parts = static_cast<DependencyParts*>(parts);
   dependency_parts->Initialize();
   bool make_gold = (gold_outputs != NULL);
@@ -286,8 +309,8 @@ void DependencyPipe::MakeParts(Instance *instance,
     MakePartsBasic(instance, parts, gold_outputs);
     dependency_parts->BuildOffsets();
     dependency_parts->BuildIndices(sentence_length,
-        GetDependencyOptions()->labeled());
-  
+                                   GetDependencyOptions()->labeled());
+
     // Make global parts.
     MakePartsGlobal(instance, parts, gold_outputs);
     dependency_parts->BuildOffsets();
@@ -297,9 +320,12 @@ void DependencyPipe::MakeParts(Instance *instance,
 void DependencyPipe::MakePartsBasic(Instance *instance,
                                     Parts *parts,
                                     vector<double> *gold_outputs) {
+  DependencyInstanceNumeric *sentence =
+    static_cast<DependencyInstanceNumeric*>(instance);
   int sentence_length =
-      static_cast<DependencyInstanceNumeric*>(instance)->size();
+    static_cast<DependencyInstanceNumeric*>(instance)->size();
   DependencyParts *dependency_parts = static_cast<DependencyParts*>(parts);
+  bool make_gold = (gold_outputs != NULL);
 
   MakePartsBasic(instance, false, parts, gold_outputs);
   dependency_parts->BuildOffsets();
@@ -312,6 +338,38 @@ void DependencyPipe::MakePartsBasic(Instance *instance,
     } else {
       Prune(instance, parts, gold_outputs, false);
     }
+    // In principle, the pruner should never make the graph
+    // ill-formed, but this seems to happen sometimes...
+    int num_parts_initial = 0;
+    vector<Part*> arcs(dependency_parts->begin() +
+                       num_parts_initial,
+                       dependency_parts->end());
+    vector<int> inserted_heads;
+    vector<int> inserted_modifiers;
+    EnforceWellFormedGraph(sentence, arcs, &inserted_heads,
+                           &inserted_modifiers);
+    if (inserted_modifiers.size() > 0) {
+      LOG(INFO) << "The pruner made the graph ill-formed!";
+    }
+    for (int k = 0; k < inserted_modifiers.size(); ++k) {
+      int m = inserted_modifiers[k];
+      int h = inserted_heads[k];
+      Part *part = dependency_parts->CreatePartArc(h, m);
+      dependency_parts->push_back(part);
+      if (make_gold) {
+        if (sentence->GetHead(m) == h) {
+          gold_outputs->push_back(1.0);
+        } else {
+          gold_outputs->push_back(0.0);
+        }
+      }
+    }
+
+    dependency_parts->
+      SetOffsetArc(num_parts_initial,
+                   dependency_parts->size() - num_parts_initial);
+
+
     dependency_parts->BuildOffsets();
     dependency_parts->BuildIndices(sentence_length, false);
   }
@@ -321,16 +379,30 @@ void DependencyPipe::MakePartsBasic(Instance *instance,
   }
 }
 
+void DependencyPipe::EnforceWellFormedGraph(Instance *instance,
+                                            const vector<Part*> &arcs,
+                                            vector<int> *inserted_heads,
+                                            vector<int> *inserted_modifiers) {
+  DependencyOptions *dependency_options = GetDependencyOptions();
+  if (dependency_options->projective()) {
+    EnforceProjectiveGraph(instance, arcs, inserted_heads, inserted_modifiers);
+  } else {
+    EnforceConnectedGraph(instance, arcs, inserted_heads, inserted_modifiers);
+  }
+}
+
 // Make sure the graph formed by the unlabeled arc parts is connected,
-// otherwise there is no feasible solution. 
-// If necessary, root nodes are added and passed back through the last 
+// otherwise there is no feasible solution.
+// If necessary, root nodes are added and passed back through the last
 // argument.
 void DependencyPipe::EnforceConnectedGraph(Instance *instance,
                                            const vector<Part*> &arcs,
-                                           vector<int> *inserted_root_nodes) {
+                                           vector<int> *inserted_heads,
+                                           vector<int> *inserted_modifiers) {
   DependencyInstanceNumeric *sentence =
-      static_cast<DependencyInstanceNumeric*>(instance);
-  inserted_root_nodes->clear();
+    static_cast<DependencyInstanceNumeric*>(instance);
+  inserted_heads->clear();
+  inserted_modifiers->clear();
 
   // Create a list of children for each node.
   vector<vector<int> > children(sentence->size());
@@ -357,17 +429,52 @@ void DependencyPipe::EnforceConnectedGraph(Instance *instance,
     }
 
     // If there are no more nodes to explore, check if all nodes
-    // were visited and, if not, add a new edge from the node to 
+    // were visited and, if not, add a new edge from the node to
     // the first node that was not visited yet.
     if (nodes_to_explore.empty()) {
       for (int m = 1; m < sentence->size(); ++m) {
         if (!visited[m]) {
           LOG(INFO) << "Inserted root node 0 -> " << m << ".";
-          inserted_root_nodes->push_back(m);
+          inserted_heads->push_back(0);
+          inserted_modifiers->push_back(m);
           nodes_to_explore.push(m);
           break;
         }
-      }      
+      }
+    }
+  }
+}
+
+// Make sure the graph formed by the unlabeled arc parts admits a projective
+// tree, otherwise there is no feasible solution when --projective=true.
+// If necessary, we add arcs of the form m-1 -> m to make sure the sentence
+// has a projective parse.
+void DependencyPipe::EnforceProjectiveGraph(Instance *instance,
+                                            const vector<Part*> &arcs,
+                                            vector<int> *inserted_heads,
+                                            vector<int> *inserted_modifiers) {
+  DependencyInstanceNumeric *sentence =
+    static_cast<DependencyInstanceNumeric*>(instance);
+  inserted_heads->clear();
+  inserted_modifiers->clear();
+
+  // Create an index of existing arcs.
+  vector<vector<int> > index(sentence->size(),
+                             vector<int>(sentence->size(), -1));
+  for (int r = 0; r < arcs.size(); ++r) {
+    CHECK_EQ(arcs[r]->type(), DEPENDENCYPART_ARC);
+    DependencyPartArc *arc = static_cast<DependencyPartArc*>(arcs[r]);
+    int h = arc->head();
+    int m = arc->modifier();
+    index[h][m] = r;
+  }
+
+  // Insert consecutive right arcs if necessary.
+  for (int m = 1; m < sentence->size(); ++m) {
+    int h = m - 1;
+    if (index[h][m] < 0) {
+      inserted_heads->push_back(h);
+      inserted_modifiers->push_back(m);
     }
   }
 }
@@ -376,7 +483,7 @@ void DependencyPipe::MakePartsBasic(Instance *instance,
                                     bool add_labeled_parts,
                                     Parts *parts,
                                     vector<double> *gold_outputs) {
-  DependencyInstanceNumeric *sentence = 
+  DependencyInstanceNumeric *sentence =
     static_cast<DependencyInstanceNumeric*>(instance);
   DependencyParts *dependency_parts = static_cast<DependencyParts*>(parts);
   DependencyDictionary *dependency_dictionary = GetDependencyDictionary();
@@ -427,18 +534,18 @@ void DependencyPipe::MakePartsBasic(Instance *instance,
           GetExistingLabels(modifier_pos_id, head_pos_id);
         if (!add_labeled_parts && allowed_labels.empty()) {
           VLOG_IF(2, h == 0) << "No allowed labels between "
-                               << token_dictionary_->GetPosTagName(head_pos_id)
-                               << " and "
-                               << token_dictionary_->GetPosTagName(modifier_pos_id);
+            << token_dictionary_->GetPosTagName(head_pos_id)
+            << " and "
+            << token_dictionary_->GetPosTagName(modifier_pos_id);
           continue;
         }
       }
 
       // Add parts for labeled/unlabeled arcs.
       if (add_labeled_parts) {
-        // If there is no allowed label for this arc, but the unlabeled arc was added, 
-        // then it was forced to be present to maintain connectivity of the 
-        // graph. In that case (which should be pretty rare) consider all the 
+        // If there is no allowed label for this arc, but the unlabeled arc was added,
+        // then it was forced to be present to maintain connectivity of the
+        // graph. In that case (which should be pretty rare) consider all the
         // possible labels.
         if (allowed_labels.empty()) {
           allowed_labels.resize(dependency_dictionary->GetLabelAlphabet().size());
@@ -475,15 +582,20 @@ void DependencyPipe::MakePartsBasic(Instance *instance,
   // When adding unlabeled arcs, make sure the graph stays connected.
   // Otherwise, enforce connectedness by adding some extra arcs
   // that connect words to the root.
+  // NOTE: if --projective, enforcing connectedness is not enough,
+  // so we add arcs of the form m-1 -> m to make sure the sentence
+  // has a projective parse.
   if (!add_labeled_parts) {
     vector<Part*> arcs(dependency_parts->begin() +
                        num_parts_initial,
                        dependency_parts->end());
-    vector<int> inserted_root_nodes;
-    EnforceConnectedGraph(sentence, arcs, &inserted_root_nodes);
-    for (int k = 0; k < inserted_root_nodes.size(); ++k) {
-      int m = inserted_root_nodes[k];
-      int h = 0;
+    vector<int> inserted_heads;
+    vector<int> inserted_modifiers;
+    EnforceWellFormedGraph(sentence, arcs, &inserted_heads,
+                           &inserted_modifiers);
+    for (int k = 0; k < inserted_modifiers.size(); ++k) {
+      int m = inserted_modifiers[k];
+      int h = inserted_heads[k];
       Part *part = dependency_parts->CreatePartArc(h, m);
       dependency_parts->push_back(part);
       if (make_gold) {
@@ -492,21 +604,23 @@ void DependencyPipe::MakePartsBasic(Instance *instance,
         } else {
           gold_outputs->push_back(0.0);
         }
-      }      
+      }
     }
 
-    dependency_parts->SetOffsetArc(num_parts_initial,
-        dependency_parts->size() - num_parts_initial);
+    dependency_parts->
+      SetOffsetArc(num_parts_initial,
+                   dependency_parts->size() - num_parts_initial);
   } else {
-    dependency_parts->SetOffsetLabeledArc(num_parts_initial,
-        dependency_parts->size() - num_parts_initial);
+    dependency_parts->
+      SetOffsetLabeledArc(num_parts_initial,
+                          dependency_parts->size() - num_parts_initial);
   }
 }
 
 void DependencyPipe::MakePartsArbitrarySiblings(Instance *instance,
                                                 Parts *parts,
                                                 vector<double> *gold_outputs) {
-  DependencyInstanceNumeric *sentence = 
+  DependencyInstanceNumeric *sentence =
     static_cast<DependencyInstanceNumeric*>(instance);
   DependencyParts *dependency_parts = static_cast<DependencyParts*>(parts);
   int sentence_length = sentence->size();
@@ -518,7 +632,7 @@ void DependencyPipe::MakePartsArbitrarySiblings(Instance *instance,
       if (h == m) continue;
       int r1 = dependency_parts->FindArc(h, m);
       if (r1 < 0) continue;
-      for (int s = m+1; s < sentence_length; ++s) {
+      for (int s = m + 1; s < sentence_length; ++s) {
         if (h == s) continue;
         int r2 = dependency_parts->FindArc(h, s);
         if (r2 < 0) continue;
@@ -536,7 +650,7 @@ void DependencyPipe::MakePartsArbitrarySiblings(Instance *instance,
 void DependencyPipe::MakePartsConsecutiveSiblings(Instance *instance,
                                                   Parts *parts,
                                                   vector<double> *gold_outputs) {
-  DependencyInstanceNumeric *sentence = 
+  DependencyInstanceNumeric *sentence =
     static_cast<DependencyInstanceNumeric*>(instance);
   DependencyParts *dependency_parts = static_cast<DependencyParts*>(parts);
   int sentence_length = sentence->size();
@@ -566,7 +680,7 @@ void DependencyPipe::MakePartsConsecutiveSiblings(Instance *instance,
         arc_between = false;
       }
 
-      for (int s = m+1; s <= sentence_length; ++s) {
+      for (int s = m + 1; s <= sentence_length; ++s) {
         int r2 = -1;
         if (s < sentence_length) {
           r2 = dependency_parts->FindArc(h, s);
@@ -614,7 +728,7 @@ void DependencyPipe::MakePartsConsecutiveSiblings(Instance *instance,
         arc_between = false;
       }
 
-      for (int s = m-1; s >= -1; --s) {
+      for (int s = m - 1; s >= -1; --s) {
         int r2 = -1;
         if (s > -1) {
           r2 = dependency_parts->FindArc(h, s);
@@ -649,7 +763,7 @@ void DependencyPipe::MakePartsConsecutiveSiblings(Instance *instance,
 void DependencyPipe::MakePartsGrandparents(Instance *instance,
                                            Parts *parts,
                                            vector<double> *gold_outputs) {
-  DependencyInstanceNumeric *sentence = 
+  DependencyInstanceNumeric *sentence =
     static_cast<DependencyInstanceNumeric*>(instance);
   DependencyParts *dependency_parts = static_cast<DependencyParts*>(parts);
   int sentence_length = sentence->size();
@@ -677,10 +791,311 @@ void DependencyPipe::MakePartsGrandparents(Instance *instance,
   }
 }
 
+void DependencyPipe::MakePartsGrandSiblings(Instance *instance,
+                                            Parts *parts,
+                                            vector<double> *gold_outputs) {
+  DependencyInstanceNumeric *sentence =
+    static_cast<DependencyInstanceNumeric*>(instance);
+  DependencyParts *dependency_parts = static_cast<DependencyParts*>(parts);
+  int sentence_length = sentence->size();
+  bool make_gold = (gold_outputs != NULL);
+
+  // Grandparents with consecutive siblings: (g,h,m) and (g,h,s).
+  for (int g = 0; g < sentence_length; ++g) {
+    for (int h = 0; h < sentence_length; ++h) {
+      if (g == h) continue;
+      int r = dependency_parts->FindArc(g, h);
+      if (r < 0) continue;
+
+      bool grandpar_arc_active = false;
+      if (NEARLY_EQ_TOL((*gold_outputs)[r], 1.0, 1e-9)) {
+        grandpar_arc_active = true;
+      }
+
+      bool first_arc_active;
+      bool second_arc_active = false;
+      bool arc_between;
+
+      // Right side.
+      for (int m = h; m < sentence_length; ++m) {
+        int r1 = -1;
+        if (m != h) {
+          r1 = dependency_parts->FindArc(h, m);
+          if (r1 < 0) continue;
+        }
+
+        if (make_gold) {
+          // Check if the first arc is active.
+          if (m == h || NEARLY_EQ_TOL((*gold_outputs)[r1], 1.0, 1e-9)) {
+            first_arc_active = true;
+          } else {
+            first_arc_active = false;
+          }
+          arc_between = false;
+        }
+
+        for (int s = m + 1; s <= sentence_length; ++s) {
+          int r2 = -1;
+          if (s < sentence_length) {
+            r2 = dependency_parts->FindArc(h, s);
+            if (r2 < 0) continue;
+          }
+          if (make_gold) {
+            // Check if the second arc is active.
+            if (s == sentence_length ||
+                NEARLY_EQ_TOL((*gold_outputs)[r2], 1.0, 1e-9)) {
+              second_arc_active = true;
+            } else {
+              second_arc_active = false;
+            }
+          }
+
+          Part *part = dependency_parts->CreatePartGrandSibl(g, h, m, s);
+          dependency_parts->push_back(part);
+
+          if (make_gold) {
+            double value = 0.0;
+            if (first_arc_active && second_arc_active && !arc_between) {
+              if (grandpar_arc_active) value = 1.0;
+              arc_between = true;
+            }
+            gold_outputs->push_back(value);
+          }
+        }
+      }
+
+      // Left side.
+      for (int m = h; m >= 0; --m) {
+        int r1 = -1;
+        if (m != h) {
+          r1 = dependency_parts->FindArc(h, m);
+          if (r1 < 0) continue;
+        }
+
+        if (make_gold) {
+          // Check if the first arc is active.
+          if (m == h || NEARLY_EQ_TOL((*gold_outputs)[r1], 1.0, 1e-9)) {
+            first_arc_active = true;
+          } else {
+            first_arc_active = false;
+          }
+          arc_between = false;
+        }
+
+        for (int s = m - 1; s >= -1; --s) {
+          int r2 = -1;
+          if (s > -1) {
+            r2 = dependency_parts->FindArc(h, s);
+            if (r2 < 0) continue;
+          }
+          if (make_gold) {
+            // Check if the second arc is active.
+            if (s == -1 ||
+                NEARLY_EQ_TOL((*gold_outputs)[r2], 1.0, 1e-9)) {
+              second_arc_active = true;
+            } else {
+              second_arc_active = false;
+            }
+          }
+
+          Part *part = dependency_parts->CreatePartGrandSibl(g, h, m, s);
+          dependency_parts->push_back(part);
+
+          if (make_gold) {
+            double value = 0.0;
+            if (first_arc_active && second_arc_active && !arc_between) {
+              if (grandpar_arc_active) value = 1.0;
+              arc_between = true;
+            }
+            gold_outputs->push_back(value);
+          }
+        }
+      }
+    }
+  }
+}
+
+void DependencyPipe::MakePartsTriSiblings(Instance *instance,
+                                          Parts *parts,
+                                          vector<double> *gold_outputs) {
+  DependencyInstanceNumeric *sentence =
+    static_cast<DependencyInstanceNumeric*>(instance);
+  DependencyParts *dependency_parts = static_cast<DependencyParts*>(parts);
+  int sentence_length = sentence->size();
+  bool make_gold = (gold_outputs != NULL);
+
+#if 0
+  for (int h = 0; h < sentence_length; ++h) {
+    cout << "h=" << h << ": ";
+    for (int m = 1; m < sentence_length; ++m) {
+      int r = dependency_parts->FindArc(h, m);
+      if (r >= 0 && NEARLY_EQ_TOL((*gold_outputs)[r], 1.0, 1e-9)) {
+        cout << m << " ";
+      }
+    }
+    cout << endl;
+  }
+#endif
+
+  // Three consecutive siblings: (h,m), (h,s), and (h,t).
+  for (int h = 0; h < sentence_length; ++h) {
+    bool first_arc_active;
+    bool second_arc_active = false;
+    bool third_arc_active = false;
+    bool arc_between;
+
+    // Right side.
+    for (int m = h; m < sentence_length; ++m) {
+      int r1 = -1;
+      if (m != h) {
+        r1 = dependency_parts->FindArc(h, m);
+        if (r1 < 0) continue;
+      }
+
+      if (make_gold) {
+        // Check if the first arc is active.
+        if (m == h || NEARLY_EQ_TOL((*gold_outputs)[r1], 1.0, 1e-9)) {
+          first_arc_active = true;
+        } else {
+          first_arc_active = false;
+        }
+        arc_between = false;
+      }
+
+      // Assume s cannot be the stop symbol.
+      for (int s = m + 1; s < sentence_length; ++s) {
+        int r2 = -1;
+        if (s < sentence_length) {
+          r2 = dependency_parts->FindArc(h, s);
+          if (r2 < 0) continue;
+        }
+        if (make_gold) {
+          // Check if the second arc is active.
+          if (s == sentence_length ||
+              NEARLY_EQ_TOL((*gold_outputs)[r2], 1.0, 1e-9)) {
+            second_arc_active = true;
+          } else {
+            second_arc_active = false;
+          }
+        }
+
+        // Assume t can be the stop symbol.
+        for (int t = s + 1; t <= sentence_length; ++t) {
+          int r3 = -1;
+          if (t < sentence_length) {
+            r3 = dependency_parts->FindArc(h, t);
+            if (r3 < 0) continue;
+          }
+          if (make_gold) {
+            // Check if the third arc is active.
+            if (t == sentence_length ||
+                NEARLY_EQ_TOL((*gold_outputs)[r3], 1.0, 1e-9)) {
+              third_arc_active = true;
+            } else {
+              third_arc_active = false;
+            }
+          }
+
+          Part *part = dependency_parts->CreatePartTriSibl(h, m, s, t);
+          dependency_parts->push_back(part);
+
+          if (make_gold) {
+            double value = 0.0;
+            if (first_arc_active && second_arc_active && third_arc_active &&
+                !arc_between) {
+              value = 1.0;
+              arc_between = true;
+            }
+            gold_outputs->push_back(value);
+#if 0
+            if (value == 1.0) {
+              cout << "Gold trisibling: " << h << " " << m << " " << s << " " << t << endl;
+            }
+#endif
+          }
+        }
+      }
+    }
+
+    // Left side.
+    for (int m = h; m >= 0; --m) {
+      int r1 = -1;
+      if (m != h) {
+        r1 = dependency_parts->FindArc(h, m);
+        if (r1 < 0) continue;
+      }
+
+      if (make_gold) {
+        // Check if the first arc is active.
+        if (m == h || NEARLY_EQ_TOL((*gold_outputs)[r1], 1.0, 1e-9)) {
+          first_arc_active = true;
+        } else {
+          first_arc_active = false;
+        }
+        arc_between = false;
+      }
+
+      // Assume s cannot be the stop symbol.
+      for (int s = m - 1; s > -1; --s) {
+        int r2 = -1;
+        if (s > -1) {
+          r2 = dependency_parts->FindArc(h, s);
+          if (r2 < 0) continue;
+        }
+        if (make_gold) {
+          // Check if the second arc is active.
+          if (s == -1 ||
+              NEARLY_EQ_TOL((*gold_outputs)[r2], 1.0, 1e-9)) {
+            second_arc_active = true;
+          } else {
+            second_arc_active = false;
+          }
+        }
+
+        // Assume t can be the stop symbol.
+        for (int t = s - 1; t >= -1; --t) {
+          int r3 = -1;
+          if (t > -1) {
+            r3 = dependency_parts->FindArc(h, t);
+            if (r3 < 0) continue;
+          }
+          if (make_gold) {
+            // Check if the third arc is active.
+            if (t == -1 ||
+                NEARLY_EQ_TOL((*gold_outputs)[r3], 1.0, 1e-9)) {
+              third_arc_active = true;
+            } else {
+              third_arc_active = false;
+            }
+          }
+
+          Part *part = dependency_parts->CreatePartTriSibl(h, m, s, t);
+          dependency_parts->push_back(part);
+
+          if (make_gold) {
+            double value = 0.0;
+            if (first_arc_active && second_arc_active && third_arc_active &&
+                !arc_between) {
+              value = 1.0;
+              arc_between = true;
+            }
+            gold_outputs->push_back(value);
+#if 0
+            if (value == 1.0) {
+              cout << "Gold trisibling: " << h << " " << m << " " << s << " " << t << endl;
+            }
+#endif
+          }
+        }
+      }
+    }
+  }
+}
+
 void DependencyPipe::MakePartsNonprojectiveArcs(Instance *instance,
                                                 Parts *parts,
                                                 vector<double> *gold_outputs) {
-  DependencyInstanceNumeric *sentence = 
+  DependencyInstanceNumeric *sentence =
     static_cast<DependencyInstanceNumeric*>(instance);
   DependencyParts *dependency_parts = static_cast<DependencyParts*>(parts);
   int sentence_length = sentence->size();
@@ -719,7 +1134,7 @@ void DependencyPipe::MakePartsNonprojectiveArcs(Instance *instance,
 void DependencyPipe::MakePartsDirectedPaths(Instance *instance,
                                             Parts *parts,
                                             vector<double> *gold_outputs) {
-  DependencyInstanceNumeric *sentence = 
+  DependencyInstanceNumeric *sentence =
     static_cast<DependencyInstanceNumeric*>(instance);
   DependencyParts *dependency_parts = static_cast<DependencyParts*>(parts);
   int sentence_length = sentence->size();
@@ -747,7 +1162,7 @@ void DependencyPipe::MakePartsDirectedPaths(Instance *instance,
 void DependencyPipe::MakePartsHeadBigrams(Instance *instance,
                                           Parts *parts,
                                           vector<double> *gold_outputs) {
-  DependencyInstanceNumeric *sentence = 
+  DependencyInstanceNumeric *sentence =
     static_cast<DependencyInstanceNumeric*>(instance);
   DependencyParts *dependency_parts = static_cast<DependencyParts*>(parts);
   int sentence_length = sentence->size();
@@ -760,8 +1175,8 @@ void DependencyPipe::MakePartsHeadBigrams(Instance *instance,
       int r1 = dependency_parts->FindArc(h, m);
       if (r1 < 0) continue;
       for (int h_prev = 0; h_prev < sentence_length; ++h_prev) {
-        if (h_prev == m-1) continue;
-        int r2 = dependency_parts->FindArc(h_prev, m-1);
+        if (h_prev == m - 1) continue;
+        int r2 = dependency_parts->FindArc(h_prev, m - 1);
         if (r2 < 0) continue;
         Part *part = dependency_parts->CreatePartHeadBigram(h, m, h_prev);
         dependency_parts->push_back(part);
@@ -775,8 +1190,8 @@ void DependencyPipe::MakePartsHeadBigrams(Instance *instance,
 }
 
 void DependencyPipe::MakePartsGlobal(Instance *instance,
-                                    Parts *parts,
-                                    vector<double> *gold_outputs) {
+                                     Parts *parts,
+                                     vector<double> *gold_outputs) {
   DependencyOptions *dependency_options = GetDependencyOptions();
   DependencyParts *dependency_parts = static_cast<DependencyParts*>(parts);
 
@@ -785,58 +1200,74 @@ void DependencyPipe::MakePartsGlobal(Instance *instance,
     MakePartsArbitrarySiblings(instance, parts, gold_outputs);
   }
   dependency_parts->SetOffsetSibl(num_parts_initial,
-      dependency_parts->size() - num_parts_initial);
+                                  dependency_parts->size() - num_parts_initial);
 
   num_parts_initial = dependency_parts->size();
   if (dependency_options->use_consecutive_siblings()) {
     MakePartsConsecutiveSiblings(instance, parts, gold_outputs);
   }
   dependency_parts->SetOffsetNextSibl(num_parts_initial,
-      dependency_parts->size() - num_parts_initial);
+                                      dependency_parts->size() - num_parts_initial);
 
   num_parts_initial = dependency_parts->size();
   if (dependency_options->use_grandparents()) {
     MakePartsGrandparents(instance, parts, gold_outputs);
   }
   dependency_parts->SetOffsetGrandpar(num_parts_initial,
-      dependency_parts->size() - num_parts_initial);
+                                      dependency_parts->size() - num_parts_initial);
+
+  num_parts_initial = dependency_parts->size();
+  if (dependency_options->use_grandsiblings()) {
+    MakePartsGrandSiblings(instance, parts, gold_outputs);
+  }
+  dependency_parts->SetOffsetGrandSibl(num_parts_initial,
+                                       dependency_parts->size() - num_parts_initial);
+
+  num_parts_initial = dependency_parts->size();
+  if (dependency_options->use_trisiblings()) {
+    MakePartsTriSiblings(instance, parts, gold_outputs);
+  }
+  dependency_parts->SetOffsetTriSibl(num_parts_initial,
+                                     dependency_parts->size() - num_parts_initial);
 
   num_parts_initial = dependency_parts->size();
   if (dependency_options->use_nonprojective_arcs()) {
     MakePartsNonprojectiveArcs(instance, parts, gold_outputs);
   }
   dependency_parts->SetOffsetNonproj(num_parts_initial,
-      dependency_parts->size() - num_parts_initial);
+                                     dependency_parts->size() - num_parts_initial);
 
   num_parts_initial = dependency_parts->size();
   if (dependency_options->use_directed_paths()) {
     MakePartsDirectedPaths(instance, parts, gold_outputs);
   }
   dependency_parts->SetOffsetPath(num_parts_initial,
-      dependency_parts->size() - num_parts_initial);
+                                  dependency_parts->size() - num_parts_initial);
 
   num_parts_initial = dependency_parts->size();
   if (dependency_options->use_head_bigrams()) {
     MakePartsHeadBigrams(instance, parts, gold_outputs);
   }
   dependency_parts->SetOffsetHeadBigr(num_parts_initial,
-      dependency_parts->size() - num_parts_initial);
+                                      dependency_parts->size() - num_parts_initial);
 }
 
+#if 0
 void DependencyPipe::GetAllAncestors(const vector<int> &heads,
-                                    int descend,
-                                    vector<int>* ancestors) {
+                                     int descend,
+                                     vector<int>* ancestors) const {
   ancestors->clear();
   int h = heads[descend];
   while (h >= 0) {
-    h = heads[h];
     ancestors->push_back(h);
+    h = heads[h];
   }
 }
+#endif
 
 bool DependencyPipe::ExistsPath(const vector<int> &heads,
                                 int ancest,
-                                int descend) {
+                                int descend) const {
   int h = heads[descend];
   while (h != ancest && h >= 0) {
     h = heads[h];
@@ -847,7 +1278,7 @@ bool DependencyPipe::ExistsPath(const vector<int> &heads,
 
 bool DependencyPipe::IsProjectiveArc(const vector<int> &heads,
                                      int par,
-                                     int ch) {
+                                     int ch) const {
   int i0 = par;
   int j0 = ch;
   if (i0 > j0) {
@@ -855,7 +1286,7 @@ bool DependencyPipe::IsProjectiveArc(const vector<int> &heads,
     j0 = par;
   }
 
-  for (int k = i0+1; k < j0; k++) {
+  for (int k = i0 + 1; k < j0; k++) {
     // if (i,j) is projective, then all k must descend from i
     if (!ExistsPath(heads, par, k)) return false;
   }
@@ -903,7 +1334,7 @@ void DependencyPipe::MakeSelectedFeatures(Instance *instance,
       static_cast<DependencyPartSibl*>((*dependency_parts)[r]);
     CHECK_EQ(part->type(), DEPENDENCYPART_SIBL);
     dependency_features->AddArbitrarySiblingFeatures(sentence, r,
-      part->head(), part->modifier(), part->sibling());
+                                                     part->head(), part->modifier(), part->sibling());
   }
 
   // Build features for consecutive siblings.
@@ -915,10 +1346,10 @@ void DependencyPipe::MakeSelectedFeatures(Instance *instance,
       static_cast<DependencyPartNextSibl*>((*dependency_parts)[r]);
     CHECK_EQ(part->type(), DEPENDENCYPART_NEXTSIBL);
     dependency_features->AddConsecutiveSiblingFeatures(sentence, r,
-      part->head(), part->modifier(), part->next_sibling());
+                                                       part->head(), part->modifier(), part->next_sibling());
   }
 
-  // Build features for grandparent siblings.
+  // Build features for grandparents.
   dependency_parts->GetOffsetGrandpar(&offset, &size);
   if (pruner) CHECK_EQ(size, 0);
   for (int r = offset; r < offset + size; ++r) {
@@ -928,7 +1359,51 @@ void DependencyPipe::MakeSelectedFeatures(Instance *instance,
     CHECK_EQ(part->type(), DEPENDENCYPART_GRANDPAR);
     CHECK_LE(part->modifier(), sentence_length);
     dependency_features->AddGrandparentFeatures(sentence, r,
-      part->grandparent(), part->head(), part->modifier());
+                                                part->grandparent(), part->head(), part->modifier());
+  }
+
+  // Build features for grand-siblings.
+  dependency_parts->GetOffsetGrandSibl(&offset, &size);
+  if (pruner) CHECK_EQ(size, 0);
+  for (int r = offset; r < offset + size; ++r) {
+    if (!selected_parts[r]) continue;
+    DependencyPartGrandSibl *part =
+      static_cast<DependencyPartGrandSibl*>((*dependency_parts)[r]);
+    CHECK_EQ(part->type(), DEPENDENCYPART_GRANDSIBL);
+    CHECK_LE(part->modifier(), sentence_length);
+    CHECK_LE(part->sibling(), sentence_length);
+    /*
+    LOG(INFO) << "AddGrandSiblingFeatures: " << part->grandparent() << " "
+              << part->head() << " "
+              << part->modifier() << " "
+              << part->sibling();
+    */
+    dependency_features->AddGrandSiblingFeatures(sentence, r,
+                                                 part->grandparent(),
+                                                 part->head(),
+                                                 part->modifier(),
+                                                 part->sibling());
+  }
+
+  // Build features for tri-siblings.
+  dependency_parts->GetOffsetTriSibl(&offset, &size);
+  if (pruner) CHECK_EQ(size, 0);
+  for (int r = offset; r < offset + size; ++r) {
+    if (!selected_parts[r]) continue;
+    DependencyPartTriSibl *part =
+      static_cast<DependencyPartTriSibl*>((*dependency_parts)[r]);
+    CHECK_EQ(part->type(), DEPENDENCYPART_TRISIBL);
+    /*
+    LOG(INFO) << "AddTriSiblingFeatures: " << part->head() << " "
+              << part->modifier() << " "
+              << part->sibling() << " "
+              << part->other_sibling();
+    */
+    dependency_features->AddTriSiblingFeatures(sentence, r,
+                                               part->head(),
+                                               part->modifier(),
+                                               part->sibling(),
+                                               part->other_sibling());
   }
 
   // Build features for nonprojective arcs.
@@ -940,7 +1415,7 @@ void DependencyPipe::MakeSelectedFeatures(Instance *instance,
       static_cast<DependencyPartNonproj*>((*dependency_parts)[r]);
     CHECK_EQ(part->type(), DEPENDENCYPART_NONPROJ);
     dependency_features->AddNonprojectiveArcFeatures(sentence, r,
-      part->head(), part->modifier());
+                                                     part->head(), part->modifier());
   }
 
   // Build features for directed paths.
@@ -952,7 +1427,7 @@ void DependencyPipe::MakeSelectedFeatures(Instance *instance,
       static_cast<DependencyPartPath*>((*dependency_parts)[r]);
     CHECK_EQ(part->type(), DEPENDENCYPART_PATH);
     dependency_features->AddDirectedPathFeatures(sentence, r,
-      part->ancestor(), part->descendant());
+                                                 part->ancestor(), part->descendant());
   }
 
   // Build features for head bigrams.
@@ -964,7 +1439,7 @@ void DependencyPipe::MakeSelectedFeatures(Instance *instance,
       static_cast<DependencyPartHeadBigram*>((*dependency_parts)[r]);
     CHECK_EQ(part->type(), DEPENDENCYPART_HEADBIGRAM);
     dependency_features->AddHeadBigramFeatures(sentence, r,
-      part->head(), part->modifier(), part->previous_head());
+                                               part->head(), part->modifier(), part->previous_head());
   }
 }
 
@@ -1011,10 +1486,10 @@ void DependencyPipe::Prune(Instance *instance, Parts *parts,
 }
 
 void DependencyPipe::LabelInstance(Parts *parts, const vector<double> &output,
-                   Instance *instance) {
+                                   Instance *instance) {
   DependencyParts *dependency_parts = static_cast<DependencyParts*>(parts);
   DependencyInstance *dependency_instance =
-      static_cast<DependencyInstance*>(instance);
+    static_cast<DependencyInstance*>(instance);
   int instance_length = dependency_instance->size();
   for (int m = 0; m < instance_length; ++m) {
     dependency_instance->SetHead(m, -1);
@@ -1029,11 +1504,11 @@ void DependencyPipe::LabelInstance(Parts *parts, const vector<double> &output,
     dependency_parts->GetOffsetLabeledArc(&offset, &num_labeled_arcs);
     for (int r = 0; r < num_labeled_arcs; ++r) {
       DependencyPartLabeledArc *arc =
-          static_cast<DependencyPartLabeledArc*>((*dependency_parts)[offset + r]);
+        static_cast<DependencyPartLabeledArc*>((*dependency_parts)[offset + r]);
       if (output[offset + r] >= threshold) {
         dependency_instance->SetHead(arc->modifier(), arc->head());
-        dependency_instance->SetDependencyRelation(arc->modifier(), 
-          GetDependencyDictionary()->GetLabelName(arc->label()));
+        dependency_instance->SetDependencyRelation(arc->modifier(),
+                                                   GetDependencyDictionary()->GetLabelName(arc->label()));
       }
     }
   } else {
@@ -1041,7 +1516,7 @@ void DependencyPipe::LabelInstance(Parts *parts, const vector<double> &output,
     dependency_parts->GetOffsetArc(&offset, &num_basic_parts);
     for (int r = 0; r < num_basic_parts; ++r) {
       DependencyPartArc *arc =
-          static_cast<DependencyPartArc*>((*dependency_parts)[offset + r]);
+        static_cast<DependencyPartArc*>((*dependency_parts)[offset + r]);
       if (output[offset + r] >= threshold) {
         dependency_instance->SetHead(arc->modifier(), arc->head());
       }
@@ -1057,4 +1532,3 @@ void DependencyPipe::LabelInstance(Parts *parts, const vector<double> &output,
     }
   }
 }
-
